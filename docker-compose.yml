@@ -1,17 +1,19 @@
 version: '3.8'
 
+# Credentials come from the DBT_* variables in your local .env (see README → Credentials).
+# The values after ":-" are local-only fallbacks so the stack still starts without a .env.
 services:
   db:
     image: postgres:latest
     environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: ${DBT_DATABASE:-postgres}
+      POSTGRES_USER: ${DBT_USER:-admin}
+      POSTGRES_PASSWORD: ${DBT_PASSWORD:-admin}
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
       - ./raw_data:/raw_data  # Mount raw_data folder to access CSV files
     ports:
-      - "5432:5432"
+      - "${DBT_PORT:-5432}:5432"
 
   data_loader:
     image: postgres:latest
@@ -21,6 +23,8 @@ services:
       - ./raw_data:/raw_data
     entrypoint: /bin/bash /raw_data/load_data.sh
     environment:
-      PGPASSWORD: admin
+      PGUSER: ${DBT_USER:-admin}
+      PGPASSWORD: ${DBT_PASSWORD:-admin}
+      PGDATABASE: ${DBT_DATABASE:-postgres}
     links:
       - db
