@@ -9,3 +9,4 @@ dbt_internal_packages/
 .venv/
 .user.yml
 .dotenv/*.env
+.mcp.json
