@@ -1,0 +1,313 @@
+version: 2
+
+sources:
+  - name: postgres_public
+    database: postgres
+    schema: public
+    description: >
+      Raw Pipedrive CRM data. Each CSV in `raw_data/` is loaded once, with no changes, into a table of
+      the same name in `postgres.public` by `raw_data/load_data.sh`. The tables are created by `init.sql`.
+      Nothing reloads them on a schedule, so the source has no freshness check and every contract test
+      covers the full table (static load).
+    tables:
+      - name: activity
+        description: >
+          Sales activities (calls, meetings, follow-ups) scheduled against deals and assigned to a user.
+
+
+          **Grain**: intended to be one row per activity (`activity_id`). The ID is not unique in the raw
+          data: 11 `activity_id`s appear twice (22 rows), and each pair has a different type, user, deal and
+          due date, so they are not plain copies. `init.sql` declares no primary key.
+
+
+          **Load / test scope**: static load from `raw_data/activity.csv`. Contract tests cover the full table.
+
+
+          **Known data-quality findings** (profiled 2026-10-15, 4,579 rows):
+
+
+          - 11 duplicated `activity_id`s, so the `unique` test is set to `warn`.
+
+          - Only 8 of the 4,572 distinct `deal_id`s also appear in `deal_changes`. The source has no deals
+            table, so `deal_id` has no relationships test.
+
+          - `due_to` ranges from 2024-01-01 to 2024-09-13.
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
+        columns:
+          - name: activity_id
+            data_type: integer
+            description: "{{ doc('activity__activity_id') }}"
+            data_tests:
+              - not_null
+              - unique:
+                  config:
+                    severity: warn   # 11 known duplicated IDs in the raw data; staging must resolve them
+          - name: type
+            data_type: character varying
+            description: "{{ doc('activity_type') }}"
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ["after_close_call", "follow_up", "meeting", "sc_2"]
+              - relationships:
+                  arguments:
+                    to: source('postgres_public', 'activity_types')
+                    field: type
+          - name: assigned_to_user
+            data_type: integer
+            description: "{{ doc('activity__assigned_to_user') }}"
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('postgres_public', 'users')
+                    field: id
+          - name: deal_id
+            data_type: integer
+            description: "{{ doc('deal_id') }}"
+            data_tests:
+              - not_null
+          - name: done
+            data_type: boolean
+            description: "{{ doc('activity__done') }}"
+            data_tests:
+              - not_null
+          - name: due_to
+            data_type: timestamp without time zone
+            description: "{{ doc('activity__due_to') }}"
+            data_tests:
+              - not_null
+
+      - name: activity_types
+        description: >
+          Lookup of the activity types that can be logged in Pipedrive.
+
+
+          **Grain**: one row per activity type (`id`, declared primary key). `type` is also unique and is the
+          key that `activity.type` references.
+
+
+          **Load / test scope**: static load from `raw_data/activity_types.csv` (4 rows). Contract tests cover
+          the full table.
+
+
+          **Known data-quality findings**: `follow_up` has `active = 'No'`, yet 1,133 activities use it.
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
+        columns:
+          - name: id
+            data_type: integer
+            description: "{{ doc('activity_types__id') }}"
+            data_tests:
+              - unique
+              - not_null
+          - name: name
+            data_type: character varying
+            description: "{{ doc('activity_types__name') }}"
+            data_tests:
+              - not_null
+          - name: active
+            data_type: character varying
+            description: "{{ doc('activity_types__active') }}"
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ["Yes", "No"]
+          - name: type
+            data_type: character varying
+            description: "{{ doc('activity_type') }}"
+            data_tests:
+              - unique
+              - not_null
+
+      - name: deal_changes
+        description: >
+          Change log of deal fields: each row records that a deal field (`changed_field_key`) was set to
+          `new_value` at `change_time`. This is the only source of deal history. The source has no deals
+          table, so deal creation (`add_time`), stage moves (`stage_id`), owner changes (`user_id`) and lost
+          reasons (`lost_reason`) all come from this table.
+
+
+          **Grain**: one row per deal, change time and changed field (`deal_id`, `change_time`,
+          `changed_field_key`). The combination is unique, but no key is declared.
+
+
+          **Load / test scope**: static load from `raw_data/deal_changes.csv`. Contract tests cover the full table.
+
+
+          **Known data-quality findings** (profiled 2026-10-15, 15,406 rows, 1,995 deals):
+
+
+          - 5 deals have two `add_time` rows at different times.
+
+          - Row counts by `changed_field_key`: `stage_id` 8,906, `user_id` 2,500, `add_time` 2,000,
+            `lost_reason` 2,000.
+
+          - `change_time` ranges from 2024-01-01 to 2025-03-11.
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: ["deal_id", "change_time", "changed_field_key"]
+        columns:
+          - name: deal_id
+            data_type: integer
+            description: "{{ doc('deal_id') }}"
+            data_tests:
+              - not_null
+          - name: change_time
+            data_type: timestamp without time zone
+            description: "{{ doc('deal_changes__change_time') }}"
+            data_tests:
+              - not_null
+          - name: changed_field_key
+            data_type: character varying
+            description: "{{ doc('field_key') }}"
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ["add_time", "stage_id", "user_id", "lost_reason"]
+              - relationships:
+                  arguments:
+                    to: source('postgres_public', 'fields')
+                    field: field_key
+          - name: new_value
+            data_type: character varying
+            description: "{{ doc('deal_changes__new_value') }}"
+            data_tests:
+              - not_null
+              # Polymorphic column: these filters pick out one field key; they are not recency windows.
+              - accepted_values:
+                  arguments:
+                    values: ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                  config:
+                    where: "changed_field_key = 'stage_id'"
+              - accepted_values:
+                  arguments:
+                    values: ["1", "2", "3", "4", "5"]
+                  config:
+                    where: "changed_field_key = 'lost_reason'"
+
+      - name: fields
+        description: >
+          Metadata for the deal fields tracked in `deal_changes`: display name and, for picklist fields, the
+          allowed options.
+
+
+          **Grain**: one row per deal field (`id`, declared primary key). `field_key` is also unique and is the
+          key that `deal_changes.changed_field_key` references.
+
+
+          **Load / test scope**: static load from `raw_data/fields.csv` (4 rows). Contract tests cover the full table.
+
+
+          **Known data-quality findings**: the `stage_id` options label stage 2 "Qualified Lead", while
+          `stages.stage_name` says "Qualified lead" (only the capital L differs).
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
+        columns:
+          - name: id
+            data_type: integer
+            description: "{{ doc('fields__id') }}"
+            data_tests:
+              - unique
+              - not_null
+          - name: field_key
+            data_type: character varying
+            description: "{{ doc('field_key') }}"
+            data_tests:
+              - unique
+              - not_null
+          - name: name
+            data_type: character varying
+            description: "{{ doc('fields__name') }}"
+            data_tests:
+              - not_null
+          - name: field_value_options
+            data_type: jsonb
+            description: "{{ doc('fields__field_value_options') }}"
+
+      - name: stages
+        description: >
+          Lookup of the sales pipeline stages, in funnel order.
+
+
+          **Grain**: one row per pipeline stage (`stage_id`, declared primary key).
+
+
+          **Load / test scope**: static load from `raw_data/stages.csv` (9 rows). Contract tests cover the full table.
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
+        columns:
+          - name: stage_id
+            data_type: integer
+            description: "{{ doc('stage_id') }}"
+            data_tests:
+              - unique
+              - not_null
+          - name: stage_name
+            data_type: character varying
+            description: "{{ doc('stages__stage_name') }}"
+            data_tests:
+              - unique
+              - not_null
+
+      - name: users
+        description: >
+          Pipedrive users (sales reps) who own deals and are assigned activities.
+
+
+          **Grain**: one row per user (`id`, declared primary key).
+
+
+          **Load / test scope**: static load from `raw_data/users.csv`. Contract tests cover the full table.
+
+
+          **Known data-quality findings** (profiled 2026-10-15, 1,787 rows): 4 duplicate `email` values and
+          21 duplicate `name` values, so neither column identifies a user.
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
+        columns:
+          - name: id
+            data_type: integer
+            description: "{{ doc('users__id') }}"
+            data_tests:
+              - unique
+              - not_null
+          - name: name
+            data_type: character varying
+            description: "{{ doc('users__name') }}"
+            data_tests:
+              - not_null
+          - name: email
+            data_type: character varying
+            description: "{{ doc('users__email') }}"
+            data_tests:
+              - not_null
+          - name: modified
+            data_type: timestamp without time zone
+            description: "{{ doc('users__modified') }}"
+            data_tests:
+              - not_null
