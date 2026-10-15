@@ -44,6 +44,62 @@ If you change the user, password, or database name after the database was first 
 
 `.env` and `.env.*` are listed in `.gitignore`, so git will not pick them up. Before every commit, run `git status` and make sure no `.env` file (or any other file containing a password, key, or token) is staged.
 
+## dbt Documentation and Observability
+
+Two self-contained HTML pages, one for reading the project and one for following up on failing tests:
+
+| Page | File | What it shows |
+|---|---|---|
+| dbt documentation | [target/static_index.html](target/static_index.html) | Models, sources, column docs, tests, and lineage |
+| Elementary observability | [edr_target/elementary_report.html](edr_target/elementary_report.html) | Test results with failing-row samples, run history, and lineage |
+
+These pages are built from your own database, so they aren't committed and have no shared URL. Generate them locally (the links above work once the files exist), then open them in a browser. No server is needed.
+
+**1. One-time setup** (skip any step you've already done):
+
+```
+.venv/bin/python -m pip install 'elementary-data[postgres]==0.20.1'   # Elementary CLI; same version as in packages.yml
+.venv/bin/dbt deps                                                    # installs the Elementary dbt package
+```
+
+Then create `.edr/profiles.yml` (Elementary's connection profile; see below).
+
+**2. Generate the pages** from a terminal at the repo root:
+
+```
+set -a; source .dotenv/.dev.env; set +a        # export your credentials
+
+.venv/bin/dbt build                            # runs models + tests; Elementary logs the results
+.venv/bin/dbt docs generate --static           # writes target/static_index.html
+.venv/bin/edr report --profiles-dir .edr       # writes edr_target/elementary_report.html
+```
+
+**3. Open them:**
+
+```
+open target/static_index.html
+open edr_target/elementary_report.html
+```
+
+(`open` is macOS; on Linux use `xdg-open`, on Windows `start`.) Re-run step 2 whenever you want fresh results.
+
+**Elementary profile.** `.edr/profiles.yml` is git-ignored, so create it on a fresh clone with this content (no secrets; it reads the same `DBT_*` variables):
+
+```yaml
+elementary:
+  target: default
+  outputs:
+    default:
+      type: "{{ env_var('DBT_TYPE') }}"
+      host: "{{ env_var('DBT_HOST') }}"
+      port: "{{ env_var('DBT_PORT') | as_number }}"
+      user: "{{ env_var('DBT_USER') }}"
+      password: "{{ env_var('DBT_PASSWORD') }}"
+      dbname: "{{ env_var('DBT_DATABASE') }}"
+      schema: "{{ env_var('DBT_SCHEMA') }}_elementary"
+      threads: "{{ env_var('DBT_THREADS') | as_number }}"
+```
+
 ## Claude Code Setup
 
 ### Global permissions (`~/.claude/settings.json`)

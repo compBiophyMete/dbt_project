@@ -34,3 +34,16 @@ models:
     # Config indicated by + and applies to all files under models/example/
     +schema: pipedrive_analytics
     +materialized: table
+
+  # Elementary's own tables (run/test results) live in a separate schema:
+  # <target schema>_elementary
+  elementary:
+    +schema: elementary
+    +docs:
+      show: false   # keep Elementary's internal models out of the dbt docs site
+
+# Required by Elementary on dbt >= 1.8: lets its test materialization capture
+# failing-row samples, and runs its hooks on `dbt source freshness`.
+flags:
+  require_explicit_package_overrides_for_builtin_materializations: false
+  source_freshness_run_project_hooks: true

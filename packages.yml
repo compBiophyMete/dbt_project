@@ -1,0 +1,6 @@
+packages:
+  # Data observability: logs run/test results and powers the `edr report` HTML report.
+  # Keep in lockstep with the elementary-data CLI version in .venv (0.20.1 is the
+  # latest CLI release that supports the project's Python 3.9).
+  - package: elementary-data/elementary
+    version: 0.20.1

@@ -10,3 +10,6 @@ dbt_internal_packages/
 .user.yml
 .dotenv/*.env
 .mcp.json
+# Elementary CLI: local connection profile and generated reports
+.edr/
+edr_target/
