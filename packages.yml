@@ -4,3 +4,8 @@ packages:
   # latest CLI release that supports the project's Python 3.9).
   - package: elementary-data/elementary
     version: 0.20.1
+
+  # Generic tests beyond dbt core, e.g. unique_combination_of_columns for
+  # composite-key source contracts (deal_changes).
+  - package: dbt-labs/dbt_utils
+    version: 1.4.1
