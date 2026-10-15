@@ -1,0 +1,11 @@
+target/
+dbt_modules/
+dbt_packages/
+logs/
+dbt_internal_packages/
+.env
+.env.*
+*.pem
+.venv/
+.user.yml
+.dotenv/*.env
