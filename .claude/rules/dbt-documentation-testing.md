@@ -97,14 +97,18 @@ Every exposure must include:
 
 ### Source Data Contract Tests
 
-dbt's `contract: enforced` only works on models, not sources. Every source table must still have an explicit **data contract** expressed as tests, so upstream schema or semantic changes fail loudly at the source instead of silently breaking staging and downstream models.
+dbt's `contract: enforced` only works on models, not sources: a contract is enforced when dbt builds a table, and dbt never builds a source. dbt's guidance is to test assumptions about source data at the source. So every source table must have an explicit **data contract** expressed as tests, so upstream schema or semantic changes fail loudly at the source instead of silently breaking downstream models.
+
+**`data_type` alone checks nothing.** On a source column, `data_type` is documentation only — dbt never compares it with the warehouse, and dbt core has no built-in test that does. Checking columns and types at the source needs a custom test; this project uses the one Elementary ships: `elementary.schema_changes_from_baseline`.
 
 Every source table must define:
 
 1. **Schema contract**: what columns exist and their types
-   - Declare **every column** the project uses, each with a `data_type` (Postgres types, e.g. `integer`, `text`, `timestamp`) and a description
-   - Test the column set with `dbt_expectations.expect_table_columns_to_match_set` (or `expect_table_columns_to_contain_set` if the source may legitimately add columns)
-   - Test the types of the columns the project relies on with `dbt_expectations.expect_column_values_to_be_of_type`
+   - Declare **every column** in the table, each with a description and a `data_type`
+   - Add `elementary.schema_changes_from_baseline` at table level with `fail_on_added: true` and `enforce_types: true`. It compares the declared columns and types with the warehouse and fails on any added column, removed column, or type change. `enforce_types: true` makes a missing `data_type` a compile error
+   - **Write `data_type` as `information_schema.columns.data_type` reports it — without size or precision**: `integer`, `character varying`, `timestamp without time zone`, `boolean`, `jsonb`. Elementary reads the warehouse type without size, so `character varying(50)` fails against a `varchar(50)` column
+   - Known limit: size or precision changes (e.g. `varchar(50)` → `varchar(255)`) are not detected
+   - The test only queries the warehouse during `dbt test` / `dbt build` (other commands compile it to an empty query)
 2. **Key contract**: the grain of the table
    - `unique` + `not_null` on the primary key (or `dbt_utils.unique_combination_of_columns` for composite keys)
    - `relationships` tests for foreign keys to other source tables (e.g. `deal_changes.deal_id` → `deals.deal_id`)
@@ -113,13 +117,13 @@ Every source table must define:
    - `accepted_values` on enumerations (e.g. stage IDs, `changed_field_key`)
    - Range/format checks where relevant (e.g. timestamps not in the future, non-negative amounts)
 
-**Scope**: schema-contract tests check table metadata and always run on the whole table. Key and value contract tests follow the scope above: the 30-day `where` window for ongoing loads, the full table for static loads.
+**Scope**: the schema contract test reads table metadata, so it always covers the whole table — never give it a `where` config. Key and value contract tests follow the scope above: the 30-day `where` window for ongoing loads, the full table for static loads.
 
 **Severity**: schema and key contract tests use `severity: error`. Value contract tests may use `warn` when the source is known to be noisy; document why in the test or column description.
 
-**Staging boundary**: the `stg_` model directly on top of each source should set `contract: enforced: true` with `data_type` on every column, so the cleaned interface the rest of the project depends on is enforced at build time.
+**Package dependency**: Elementary (in `packages.yml`) is required for the schema contract. `dbt_utils` (composite keys) and `dbt_expectations` (use the maintained `metaplane/dbt_expectations`) are optional extras. If a source needs an optional package that isn't in `packages.yml`, ask the user before adding it and running `dbt deps`. If a source needs them and they are not in `packages.yml`, ask the user before adding them and running `dbt deps`.
 
-**Package dependency (optional)**: the column-set and column-type checks come from the `dbt_expectations` package (and composite keys from `dbt_utils`). They are optional — built-in dbt tests plus the enforced staging contract cover most needs. If a source needs them and they are not in `packages.yml`, ask the user before adding them and running `dbt deps`.
+**YAML syntax (dbt ≥ 1.10.8)**: declare tests under `data_tests:` (not `tests:`), and put every generic-test input under `arguments:`. Only framework settings (`severity`, `where`, …) go under `config:`. Top-level arguments raise `MissingArgumentsPropertyInGenericTestDeprecation`.
 
 Example (this project's static Pipedrive load — full-table scope, no `where` filter):
 
@@ -135,48 +139,64 @@ sources:
       - name: deal_changes
         description: >
           One row per change to a deal field. Contract tests cover the full table (static load).
-        tests:
-          - dbt_expectations.expect_table_columns_to_match_set:   # optional package
-              column_list: ["deal_id", "change_time", "changed_field_key", "new_value"]
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
         columns:
           - name: deal_id
             data_type: integer
-            tests:
+            data_tests:
               - not_null
           - name: change_time
-            data_type: timestamp
-            tests:
+            data_type: timestamp without time zone
+            data_tests:
               - not_null
           - name: changed_field_key
-            data_type: text
-            tests:
+            data_type: character varying
+            data_tests:
               - not_null
               - accepted_values:
-                  values: ["add_time", "stage_id", "user_id", "lost_reason"]
+                  arguments:
+                    values: ["add_time", "stage_id", "user_id", "lost_reason"]
           - name: new_value
-            data_type: text
+            data_type: character varying
 
       - name: activity
         description: >
           One row per sales activity on a deal. Contract tests cover the full table (static load).
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
         columns:
           - name: activity_id
             data_type: integer
-            tests:
+            data_tests:
               - unique
               - not_null
           - name: type
-            data_type: text
-            tests:
+            data_type: character varying
+            data_tests:
               - relationships:
-                  to: source('postgres_public', 'activity_types')
-                  field: type
+                  arguments:
+                    to: source('postgres_public', 'activity_types')
+                    field: type
           - name: assigned_to_user
             data_type: integer
-            tests:
+            data_tests:
               - relationships:
-                  to: source('postgres_public', 'users')
-                  field: id
+                  arguments:
+                    to: source('postgres_public', 'users')
+                    field: id
+          - name: deal_id
+            data_type: integer
+          - name: done
+            data_type: boolean
+          - name: due_to
+            data_type: timestamp without time zone
 ```
 
 For an ongoing source, add the window to each key/value test instead, e.g.:
@@ -185,6 +205,59 @@ For an ongoing source, add the window to each key/value test instead, e.g.:
               - not_null:
                   config:
                     where: "change_time >= current_date - interval '30 days'"
+```
+
+### Model Contracts (Marts)
+
+A contract is an API guarantee to the consumers of a model: its columns and their types. dbt recommends contracts for "public" models relied on downstream — dashboards, reports, other teams. In this project that means **every mart model** (`rep_*`, `fct_*`, `dim_*`): each must set `contract: enforced: true` and declare a `data_type` on **every** column. Without `data_type` values the contract has nothing to check.
+
+Contracts check the *shape* of a model; tests check its *content*. Data quality stays with tests.
+
+**What dbt enforces** (this project materializes models as `table` on Postgres):
+
+1. **Preflight check**: before building, dbt runs the model's SQL with no rows returned and compares the output column names, types, and count with the YAML. Any mismatch fails the model before a table is created.
+2. **DDL**: dbt creates the table with the declared types and constraints (`create table (... integer not null ...)`), then inserts the data. Postgres enforces every constraint type (`not_null`, `unique`, `primary_key`, `foreign_key`, `check`); a violating row fails the insert, and the model fails.
+
+**Why it matters**: a mart's shape is what a dashboard or reviewer depends on. An enforced contract turns an accidental change, such as a renamed, dropped, or retyped column, into a build failure instead of a broken dashboard. Once a contract exists, removing a column or changing its type is a breaking change; agree it with the consumers first.
+
+**How to write it:**
+
+- **Write exact Postgres types with size/precision**, e.g. `character varying(50)`, `numeric(38, 2)`. (This differs from sources, where Elementary needs types without size.) The preflight ignores size and precision, but the DDL uses the declared type, so a value longer than 50 characters fails the insert. Write `numeric` with an explicit scale; plain `numeric` can coerce away decimals.
+- **Constraints vs. tests**: a constraint violation fails the whole build, while a test reports failing rows, can be set to `warn`, and shows failing-row samples in Elementary. Use a `not_null` constraint for guarantees that must hold, such as the primary key. Use tests for checks that should be reported and followed up.
+- **Materialization**: `table` and `incremental` (with `on_schema_change: append_new_columns` or `fail`) enforce types and constraints. A `view` checks only names and types, with no constraints. `ephemeral` doesn't support contracts.
+- **Timing**: add the contract once the model's shape is agreed. Contracts add maintenance and make changes harder, which is the point for a stable consumer-facing model.
+
+**Staging and intermediate models**: contracts are optional. Source schema changes are caught at the source by `schema_changes_from_baseline`. Staging models should still list columns explicitly; never use `select *`.
+
+Example (`rep_sales_funnel_monthly.yml`):
+
+```yaml
+version: 2
+
+models:
+  - name: rep_sales_funnel_monthly
+    description: >
+      One row per month per funnel step (KPI). Monthly deal counts for each step of the Pipedrive sales funnel.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: month
+        data_type: date
+        constraints:
+          - type: not_null
+      - name: kpi_name
+        data_type: character varying(100)
+        constraints:
+          - type: not_null
+      - name: funnel_step
+        data_type: character varying(10)
+        constraints:
+          - type: not_null
+      - name: deals_count
+        data_type: integer
+        constraints:
+          - type: not_null
 ```
 
 ## Additional Best Practices
@@ -260,8 +333,10 @@ config:
 - [ ] Tests only on transformed/critical columns
 - [ ] Documentation column order matches model column order
 - [ ] Source tests scoped to the last 30 days for ongoing loads (recency timestamp documented), or to the full table for static loads
-- [ ] Every source table has a data contract: schema (columns + `data_type`), key (`unique` / `not_null` / `relationships`), and value (`accepted_values`, ranges) tests
-- [ ] `stg_` models directly on sources have `contract: enforced: true` with `data_type` on every column
+- [ ] Every source table declares every column with a `data_type` without size (`character varying`, not `character varying(50)`), and has `elementary.schema_changes_from_baseline` (`fail_on_added: true`, `enforce_types: true`) plus key (`unique` / `not_null` / `relationships`) and value (`accepted_values`, ranges) tests
+- [ ] Tests declared under `data_tests:` with generic-test inputs under `arguments:`
+- [ ] Every mart model (`rep_` / `fct_` / `dim_`) has `contract: enforced: true` with an exact Postgres `data_type` (with size/precision) on every column
+- [ ] Staging models list columns explicitly (no `select *`)
 - [ ] Materialization strategy appropriate for model size/usage
 - [ ] Incremental models with a lookback buffer have `tag: incremental` in `config.tags`
 - [ ] Schedule tags (`hourly` / `daily` / `12h`) are in `config.tags`, not `meta.tags`
