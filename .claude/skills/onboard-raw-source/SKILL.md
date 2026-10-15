@@ -120,7 +120,7 @@ data_tests:
 columns:
   - name: type
     data_type: character varying
-    description: "Activity type key (max 50 characters). ..."
+    description: "{{ doc('activity_type') }}"   # column descriptions are always doc blocks
     data_tests:
       - not_null
       - accepted_values:
@@ -141,25 +141,25 @@ Location follows the rule's example structure, grouped by source system:
 ```
 models/staging/<system>/
   _<system>__sources.yml   # source definition (all tables of this source)
-  _<system>__docs.md       # doc blocks for the source and its columns
+  _<system>__docs.md       # doc blocks for the columns only
 ```
 
 For this project `<system>` is `pipedrive` and the source keeps its existing name `postgres_public` (database `postgres`, schema `public`) so current `source('postgres_public', ...)` refs keep working. If a source file already exists elsewhere (e.g. `models/sources.yml`), propose moving it with `git mv` into the conventional location and merging, rather than leaving two definitions. Ask before moving.
 
 **`_<system>__sources.yml`**
 
-- `version: 2`; source-level `description` (system, load mechanism, refresh = static/ongoing).
-- One entry per table, in alphabetical order. Table `description` includes:
+- `version: 2`; source-level `description` (system, load mechanism, refresh = static/ongoing), written inline.
+- One entry per table, in alphabetical order. The table `description` is written **inline in the YAML** (a `>` block), never as a `{{ doc() }}` reference. It includes:
   1. Purpose (what the business entity/event is)
   2. **Grain** — "One row per …" (or "No enforced grain: …" if profiling found none)
   3. Load + test scope — "Static load from `raw_data/<file>.csv`; contract tests cover the full table."
   4. Known data-quality findings from profiling (counts), if any
 - Table-level `data_tests:` with `elementary.schema_changes_from_baseline` (plus any composite-key test).
-- `columns`: every column in ordinal order, each with `name`, `data_type`, `description`, and `data_tests` where applicable.
+- `columns`: every column in ordinal order, each with `name`, `data_type`, `description: "{{ doc('<key>') }}"`, and `data_tests` where applicable. Every column description is a doc reference; no inline column text.
 
 **`_<system>__docs.md`**
 
-- One `{% docs %}` block for the source and one per table (`<system>__<table>`), referenced from the YAML with `{{ doc('…') }}`.
+- Column doc blocks only, one per column key, referenced from the YAML with `{{ doc('…') }}`. No doc blocks for the source or its tables; those descriptions stay inline in the YAML.
 - Columns that mean the same thing across tables share **one** key (e.g. `deal_id`, `user_id` for `users.id` / `activity.assigned_to_user`). Check existing `_docs.md` files for a key before creating one.
 - Table-specific columns: key `<table>__<column>`.
 - Column docs state units/formats (timezone of timestamps, boolean meaning, JSON shape) and any raw quirks (e.g. `active` is the string `'Yes'`/`'No'`, not a boolean). Describe what the raw value **is**, not how staging will clean it.
@@ -177,7 +177,7 @@ For this project `<system>` is `pipedrive` and the source keeps its existing nam
 - [ ] Tests use `data_tests:` with inputs under `arguments:`; `dbt parse` shows no test-syntax deprecation warnings
 - [ ] No raw file, loader, or warehouse table modified
 - [ ] Each table has a grain statement, test-scope statement, and a key + value contract backed by profiling evidence
-- [ ] Shared columns use shared `{{ doc() }}` keys; doc blocks live in `_<system>__docs.md`
+- [ ] Source and table descriptions are inline in the YAML; every column description is a `{{ doc() }}` reference to a block in `_<system>__docs.md`, with shared columns using shared keys
 - [ ] Only one definition per source/table in the project; existing `source()` refs still resolve
 - [ ] `dbt parse` clean; source tests run and results (including failures) reported to the user
 - [ ] Optional packages only added with the user's approval

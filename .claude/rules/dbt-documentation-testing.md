@@ -26,7 +26,7 @@ models/
   staging/
     pipedrive/
       _pipedrive__sources.yml     # Source definitions
-      _pipedrive__docs.md         # Shared doc blocks
+      _pipedrive__docs.md         # Column doc blocks
       stg_pipedrive__deals.sql
       stg_pipedrive__deals.yml    # Single model documentation
   intermediate/
@@ -50,6 +50,8 @@ Every dbt model description must include:
 4. **Edge Cases**: Document complex scenarios (deals skipping or revisiting stages, deals changing stage multiple times in a month, null handling)
 5. **Refresh Schedule**: How often the model is updated and any freshness considerations
 
+**Where descriptions live**: model, seed, source, and source-table descriptions are written **inline in the YAML** (use a `>` block for multi-line text), never as a `{{ doc() }}` reference. A table's description is read once and belongs next to the table's config and tests; only column descriptions go in `_docs.md` doc blocks (see Column Documentation Strategy).
+
 ### Exposure Documentation Standards
 
 Every exposure must include:
@@ -64,10 +66,11 @@ Every exposure must include:
 
 ### Column Documentation Strategy
 
-- **Use `{{ doc() }}` macros for common columns** — maintain centralized documentation in `_docs.md` files
+- **Every column description must be a `{{ doc() }}` reference** (`description: "{{ doc('<key>') }}"`) to a doc block in a `_docs.md` file. No inline text for column descriptions, in models, seeds, or sources
   - **Check existing doc keys first**: If a column is already documented elsewhere, reuse the same `{{ doc('existing_key') }}` macro and docstring key
   - **Create new doc entries**: If no existing documentation is found, add the doc entry to the closest `_docs.md` file relative to your model
-- **Write custom descriptions** for transformed columns or model-specific context
+  - **Key naming**: columns that mean the same thing across tables/models share one key named after the column (e.g. `deal_id`); table- or model-specific columns use `<table_or_model>__<column>` (e.g. `activity__done`)
+- **Transformed columns and model-specific context** still get their own doc block (e.g. `rep_sales_funnel_monthly__deals_count`) rather than an inline description
 - **Match model column order**: document columns in the same order as they appear in the model for easier cross-checking
 - **Include units and formats** where applicable (e.g., "duration in days", "percentage as decimal")
 
@@ -329,7 +332,8 @@ config:
 - [ ] Every model and seed has its own single-model YAML file in the same directory
 - [ ] Model description includes row granularity and business purpose
 - [ ] Edge cases documented where applicable
-- [ ] Common columns use centralized `{{ doc() }}` references
+- [ ] Model/seed/source/table descriptions are inline in the YAML, not `{{ doc() }}` references
+- [ ] Every column description is a `{{ doc() }}` reference to a `_docs.md` doc block (shared keys reused)
 - [ ] Tests only on transformed/critical columns
 - [ ] Documentation column order matches model column order
 - [ ] Source tests scoped to the last 30 days for ongoing loads (recency timestamp documented), or to the full table for static loads
