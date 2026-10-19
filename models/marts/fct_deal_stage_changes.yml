@@ -1,0 +1,66 @@
+version: 2
+
+models:
+  - name: fct_deal_stage_changes
+    description: >
+      Stage history of Pipedrive deals with the stage's current name. The public fact for stage
+      questions: deals entering a stage per period and paths through the pipeline.
+
+
+      **Grain**: one row per deal and stage change (`deal_id`, `changed_at`). **Join on both**: a
+      join on `deal_id` alone returns the deal's whole stage history.
+
+
+      **Transformations and business logic**: `int_deal_changes_filtered_to_stages` unchanged, plus
+      the current `stage_name` from `stg_pipedrive__stages` (`left join`, n:1), joined at build time
+      because the upstream table only appends.
+
+
+      **Edge cases**:
+
+      - Skipped stages have no row. Evidence: `analyses/profile_stage_skips.sql`.
+
+      - Deal IDs with two creations are the only deals with backward moves or revisits; filter with `dim_deals.has_multiple_creations`.
+
+      - No time in stage: when a stage ends (next stage change or a loss) is not defined as a rule in this project.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (deal_id, changed_at)
+          arguments:
+            combination_of_columns: ["deal_id", "changed_at"]
+      - dbt_utils.equal_rowcount:   # the name lookup join must not drop or multiply rows
+          arguments:
+            compare_model: ref('int_deal_changes_filtered_to_stages')
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # part of the grain
+      - name: stage_id
+        description: "{{ doc('stage_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:   # every stage change points at a stage in the conformed dimension
+              arguments:
+                to: ref('dim_stages')
+                field: stage_id
+      - name: stage_name
+        description: "{{ doc('stages__stage_name') }}"
+        data_type: character varying(255)
+        data_tests:
+          - not_null   # proves the left join to stg_pipedrive__stages matched every row
+      - name: changed_at
+        description: "{{ doc('int_deal_changes_filtered_to_stages__changed_at') }}"
+        data_type: timestamp without time zone
+        constraints:
+          - type: not_null   # part of the grain

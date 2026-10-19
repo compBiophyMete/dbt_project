@@ -1,0 +1,81 @@
+version: 2
+
+models:
+  - name: fct_deal_losses
+    description: >
+      Loss history of Pipedrive deals with the reason's current name and the stage at loss. The
+      public fact for loss questions: losses per reason, per period and where in the pipeline deals
+      drop out.
+
+
+      **Grain**: one row per deal and loss (`deal_id`, `lost_at`). **Join on both**: a deal lost more
+      than once has several rows.
+
+
+      **Transformations and business logic**: `int_deal_losses_joined_to_stages` (stage at loss
+      applied there), plus current names via `left join`s (n:1): `lost_reason_name` from the
+      `lost_reason` options of `int_fields_unnested_to_options`, `stage_name_at_loss` from
+      `stg_pipedrive__stages`. Names are joined here, at build time, because the upstream tables only
+      append.
+
+
+      **Edge cases**:
+
+      - No won status in the source: a deal lost after onboarding (stages 7–9) counts as lost, and a reopened deal still shows its last loss. Evidence: `analyses/profile_stage_at_loss.sql`.
+
+      - Deal IDs with two creations have one loss per lifecycle, and their stage at loss is unreliable; filter with `dim_deals.has_multiple_creations`.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (deal_id, lost_at)
+          arguments:
+            combination_of_columns: ["deal_id", "lost_at"]
+      - dbt_utils.equal_rowcount:   # the name lookup joins must not drop or multiply rows
+          arguments:
+            compare_model: ref('int_deal_changes_filtered_to_losses')
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # part of the grain
+      - name: lost_reason_id
+        description: "{{ doc('int_deal_changes_filtered_to_losses__lost_reason_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:   # every loss points at a reason in the conformed dimension
+              arguments:
+                to: ref('dim_lost_reasons')
+                field: lost_reason_id
+      - name: lost_reason_name
+        description: "{{ doc('lost_reason_name') }}"
+        data_type: character varying(255)
+        data_tests:
+          - not_null   # proves the left join to the option lookup matched every row
+      - name: stage_id_at_loss
+        description: "{{ doc('fct_deal_losses__stage_id_at_loss') }}"
+        data_type: integer
+        data_tests:
+          - not_null   # a loss with no earlier stage change is a new data issue
+          - relationships:   # the stage at loss is a stage in the conformed dimension
+              arguments:
+                to: ref('dim_stages')
+                field: stage_id
+      - name: stage_name_at_loss
+        description: "{{ doc('stage_name_at_loss') }}"
+        data_type: character varying(255)
+        data_tests:
+          - not_null   # proves the left join to stg_pipedrive__stages matched every row
+      - name: lost_at
+        description: "{{ doc('int_deal_changes_filtered_to_losses__changed_at') }}"
+        data_type: timestamp without time zone
+        constraints:
+          - type: not_null   # part of the grain

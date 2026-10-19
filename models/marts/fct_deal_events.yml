@@ -1,0 +1,115 @@
+version: 2
+
+models:
+  - name: fct_deal_events
+    description: >
+      One timeline of everything recorded about Pipedrive deals (creations, stage changes, owner
+      changes, losses), with an `event_type`. Answers "what happened to this deal, in what order?" and
+      event counts per type and period.
+
+
+      **Grain**: one row per deal, change time and event type (`deal_id`, `changed_at`,
+      `event_type`): every row of the deal change log once.
+
+
+      **Transformations and business logic**: four event inputs combined with `union all`, never
+      joined to each other:
+
+      - `created` from `int_deal_changes_filtered_to_creations`;
+
+      - `stage_changed` from `fct_deal_stage_changes`, with `stage_name`;
+
+      - `owner_changed` from `int_deal_changes_filtered_to_owners`, with `owner_name` from `int_users`;
+
+      - `lost` from `fct_deal_losses`, with `lost_reason_name`.
+
+      Each event type fills only its own columns; the others are null. Names are current, joined at
+      build time.
+
+
+      **Edge cases**:
+
+      - Sort by `changed_at`; if two events of one deal share a timestamp, their order is undefined.
+
+      - The stage at loss is not on `lost` rows; use `fct_deal_losses.stage_id_at_loss`.
+
+      - Deal IDs with two creations mix two lifecycles (two `created` and two `lost` rows); filter with `dim_deals.has_multiple_creations`.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (deal_id, changed_at, event_type)
+          arguments:
+            combination_of_columns: ["deal_id", "changed_at", "event_type"]
+      - dbt_utils.equal_rowcount:   # every change-log row is exactly one event
+          arguments:
+            compare_model: ref('stg_pipedrive__deal_changes')
+      # sparse columns: each pair is filled exactly on its own event type
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(stage_id is not null and stage_name is not null) = (event_type = 'stage_changed')"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(owner_user_id is not null and owner_name is not null) = (event_type = 'owner_changed')"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(lost_reason_id is not null and lost_reason_name is not null) = (event_type = 'lost')"
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # part of the grain
+      - name: changed_at
+        description: "{{ doc('fct_deal_events__changed_at') }}"
+        data_type: timestamp without time zone
+        constraints:
+          - type: not_null   # part of the grain
+      - name: event_type
+        description: "{{ doc('fct_deal_events__event_type') }}"
+        data_type: character varying(20)
+        constraints:
+          - type: not_null   # part of the grain
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["created", "stage_changed", "owner_changed", "lost"]
+      # sparse foreign keys: relationships tests ignore nulls, so only filled rows are checked
+      - name: stage_id
+        description: "{{ doc('stage_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_stages')
+                field: stage_id
+      - name: stage_name
+        description: "{{ doc('stages__stage_name') }}"
+        data_type: character varying(255)
+      - name: owner_user_id
+        description: "{{ doc('int_deal_changes_filtered_to_owners__owner_user_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_users')
+                field: user_id
+      - name: owner_name
+        description: "{{ doc('fct_deal_events__owner_name') }}"
+        data_type: character varying(255)
+      - name: lost_reason_id
+        description: "{{ doc('int_deal_changes_filtered_to_losses__lost_reason_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_lost_reasons')
+                field: lost_reason_id
+      - name: lost_reason_name
+        description: "{{ doc('lost_reason_name') }}"
+        data_type: character varying(255)
