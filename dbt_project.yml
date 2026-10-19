@@ -64,6 +64,7 @@ models:
       +materialized: table
       +tags: ["daily"]            # schedule tag: refreshed by the daily Airflow DAG (orchestration/airflow/dags)
       +schema: pipedrive_analytics  # used as-is (macros/generate_schema_name.sql): the public schema
+      +access: public             # consumer-facing: exposures and other projects may depend on marts
       +docs:
         node_color: "#D4A017"     # gold: marks mart nodes in the dbt docs lineage graph
 
@@ -74,10 +75,42 @@ models:
     +docs:
       show: false   # keep Elementary's internal models out of the dbt docs site
 
+  # dbt-project-evaluator's models (the project's DAG and rule results) live in a separate schema:
+  # <target schema>_dbt_project_evaluator
+  dbt_project_evaluator:
+    +schema: dbt_project_evaluator
+    +docs:
+      show: false
+
 # Project tag on every source table of this project (`dbt source freshness --select tag:pipedrive`).
 sources:
   enpal_assessment_project:
     +tags: ["pipedrive"]
+
+# Documented exceptions to the dbt-project-evaluator rules (seeds/dbt_project_evaluator_exceptions.csv),
+# loaded next to the evaluator's models. The package's empty seed of the same name is disabled; the
+# package's seeds.yml documents its columns, so this project's seed has no YAML of its own (dbt allows
+# one description per resource). Each row's `comment` says why the exception is legitimate.
+seeds:
+  enpal_assessment_project:
+    dbt_project_evaluator_exceptions:
+      +schema: dbt_project_evaluator
+  dbt_project_evaluator:
+    dbt_project_evaluator_exceptions:
+      +enabled: false
+
+# dbt-project-evaluator's rule tests warn by default; CI sets DBT_PROJECT_EVALUATOR_SEVERITY=error
+# so a best-practice violation fails the pull request.
+data_tests:
+  dbt_project_evaluator:
+    +severity: "{{ env_var('DBT_PROJECT_EVALUATOR_SEVERITY', 'warn') }}"
+
+vars:
+  dbt_project_evaluator:
+    # Evaluate this project only; package models (Elementary, dbt_utils) follow their own conventions.
+    exclude_packages: ["all"]
+    # rep_ is the reporting prefix the brief prescribes (rep_sales_funnel_monthly); reports live in marts.
+    marts_prefixes: ["fct_", "dim_", "rep_"]
 
 # Required by Elementary on dbt >= 1.8: lets its test materialization capture
 # failing-row samples, and runs its hooks on `dbt source freshness`.

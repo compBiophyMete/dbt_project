@@ -1,0 +1,5 @@
+fct_name,column_name,id_to_exclude,comment
+fct_sources_without_freshness,resource_name,pipedrive.activity_types,"No load timestamp in the table; the freshness check switches on once the loader adds _loaded_at"
+fct_sources_without_freshness,resource_name,pipedrive.fields,"No load timestamp in the table; the freshness check switches on once the loader adds _loaded_at"
+fct_sources_without_freshness,resource_name,pipedrive.stages,"No load timestamp in the table; the freshness check switches on once the loader adds _loaded_at"
+fct_sources_without_freshness,resource_name,pipedrive.users,"modified is when a user was last edited, not when the row was loaded; the freshness check switches on once the loader adds _loaded_at"

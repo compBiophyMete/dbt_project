@@ -9,3 +9,9 @@ packages:
   # composite-key source contracts (deal_changes).
   - package: dbt-labs/dbt_utils
     version: 1.4.1
+
+  # Checks the project against dbt's modeling best practices (DAG, naming, tests, docs,
+  # structure); run in CI on every PR. 1.4.1 is the latest release that supports dbt 1.10
+  # (2.x requires dbt 2.0).
+  - package: dbt-labs/dbt_project_evaluator
+    version: 1.4.1
