@@ -27,11 +27,13 @@ models/
     pipedrive/
       _pipedrive__sources.yml     # Source definitions
       _pipedrive__docs.md         # Column doc blocks
-      stg_pipedrive__deals.sql
+      stg_pipedrive__deals.sql    # stg_<source>__<entity>s (dbt naming convention), built as stg_pipedrive.stg_pipedrive__deals
       stg_pipedrive__deals.yml    # Single model documentation
   intermediate/
-    int_deal_stage_changes.sql
-    int_deal_stage_changes.yml
+    deals/                        # business-area folder (dbt guide: by business concern, not source)
+      _intermediate_deals__docs.md
+      int_deal_changes_filtered_to_stages.sql   # int_<entity>s_<verb>s
+      int_deal_changes_filtered_to_stages.yml
   marts/
     rep_sales_funnel_monthly.sql
     rep_sales_funnel_monthly.yml
@@ -46,9 +48,19 @@ Every dbt model description must include:
 2. **Row Granularity**: Always explicitly state what one row represents
    - ✅ "One row per deal"
    - ✅ "One row per month per funnel step (KPI)"
-3. **Business Logic**: Key transformations, calculations, or aggregations applied
+3. **Transformations and business logic**: Transformations (renames, casts, cleaning, standardizing formats) and business logic (rules that decide meaning, calculations, aggregations) applied. **Staging models have no business logic**, so in staging this section is headed **Transformations** only and covers renames, casts, value mappings, typed columns and deduplication ([dbt's staging guide](https://docs.getdbt.com/best-practices/how-we-structure/2-staging): renaming, type casting, basic computations, categorizing). Rules that decide what values mean live in intermediate; a staging description at most points to the `int_` model that applies them. Intermediate and mart models keep the full heading
 4. **Edge Cases**: Document complex scenarios (deals skipping or revisiting stages, deals changing stage multiple times in a month, null handling)
 5. **Refresh Schedule**: How often the model is updated and any freshness considerations
+
+**Keep descriptions concise**: one short paragraph or one bullet per point, in the five sections above and nothing else. State each rule once, in plain words. Leave out what the reader can see elsewhere: test descriptions (the YAML's tests show them), implementation mechanics (macros, indexes, predicate pushdown, guards), quoted reasoning behind a decision (task file), and facts already in a doc block (timezones, API field names). Each wrapped bullet of a folded `>` block goes on one line, or the indented continuation keeps a stray line break.
+
+**No counts or profiling results in documentation**: the data is dynamic, so a number written into a description goes stale without anything noticing. This applies to every source, staging, intermediate and mart description, column doc block, test comment and exposure:
+
+- Don't write row counts, value counts, shares, medians, date ranges of the data, example IDs taken from the data, or "profiled <date>" / "today" claims.
+- Describe the finding in words (what it is, why it matters, how the model handles it): "some activity IDs are reused on a second deal", not "11 IDs appear twice".
+- In model descriptions, point to the analysis that holds the numbers: `Evidence: analyses/profile_<subject>.sql` (source descriptions carry no evidence links). The dated result lives there only (see the `write-eda-analysis` skill), and a reviewer reruns it to get the current numbers.
+- Still allowed: business definitions and domains enforced by tests (stage IDs 1–9, the funnel steps of the brief, accepted values), configuration (lookback windows), format examples (`2024-03-01`), and quoted vendor documentation.
+- **No decision codes and no decision log**: never write task-file decision IDs (`D1`, `D3` …), "user's decision, <date>", "revised <date>", "added <date> at the user's request" or version notes in any YAML description or doc block. State the rule itself in words ("a skipped stage still counts"); its history and date live in the task file and git.
 
 **Where descriptions live**: model, seed, source, and source-table descriptions are written **inline in the YAML** (use a `>` block for multi-line text), never as a `{{ doc() }}` reference. A table's description is read once and belongs next to the table's config and tests; only column descriptions go in `_docs.md` doc blocks (see Column Documentation Strategy).
 
@@ -71,6 +83,7 @@ Every exposure must include:
   - **Create new doc entries**: If no existing documentation is found, add the doc entry to the closest `_docs.md` file relative to your model
   - **Key naming**: columns that mean the same thing across tables/models share one key named after the column (e.g. `deal_id`); table- or model-specific columns use `<table_or_model>__<column>` (e.g. `activity__done`)
 - **Transformed columns and model-specific context** still get their own doc block (e.g. `rep_sales_funnel_monthly__deals_count`) rather than an inline description
+- **Doc blocks are neutral**: say what the value is (type, unit, format, what null means) and, for a derived column, the one-line definition of how it is computed. No key roles ("primary key", "referencing …"; tests and constraints show them), no business rules or their reasoning, no edge cases or data findings (those belong in the model description), no claims about the current data. Allowed extras: a short join warning on a non-unique column, and API v1/v2 field names with their link
 - **Match model column order**: document columns in the same order as they appear in the model for easier cross-checking
 - **Include units and formats** where applicable (e.g., "duration in days", "percentage as decimal")
 
@@ -88,7 +101,7 @@ Every exposure must include:
 - **Primary keys**: `unique` + `not_null`
 - **Foreign keys**: `relationships` tests
 - **Business rules**: `accepted_values`, range checks, custom business logic tests
-- **Data quality**: freshness tests for critical staging models — remind the user and ask for input on whether it is a critical model
+- **Data quality**: every source table with a timestamp gets a source freshness check (`config: loaded_at_field` + `freshness`), even on a static load, so the project is ready for a live feed. Thresholds follow the load schedule: daily → warn after 1 day, error after 2 days; hourly → warn after 1 hour, error after 2 hours. A table without a timestamp gets the check on `_loaded_at` once the loader adds it
 
 ### Source YAML Testing Rule
 
@@ -96,7 +109,7 @@ Every exposure must include:
   - **Ongoing loads** (the table keeps receiving new rows, and has a timestamp that reflects when a row arrived or changed): validate over the **most recent 30 days** using a test-level `where` config, e.g. `where: "<timestamp_col> >= current_date - interval '30 days'"`.
   - **Static or one-time loads** (historical snapshots, seed-like reference tables, or tables without a load/change timestamp): test the **full table** — no `where` filter. A recency filter on static data selects zero rows and makes every test pass without checking anything.
 - **Use case**: The 30-day window is the default baseline for ongoing sources unless a table-specific SLA requires a different period.
-- **Documentation expectation**: In each source table's description, state which scope applies — "last 30 days on `<timestamp_col>`" or "full table (static load)". If unsure whether a source is loaded on an ongoing basis, ask the user.
+- **Documentation expectation**: In each source table's description, state which scope applies — "last 30 days on `<timestamp_col>`" or "full table (static load)" — and the freshness check (column and thresholds, or that it waits for `_loaded_at`). The source description carries the overall **Freshness assumption** (assumed load schedule, active and pending checks). If unsure whether a source is loaded on an ongoing basis, ask the user. Full pattern: the `onboard-raw-source` skill.
 
 ### Source Data Contract Tests
 
@@ -124,6 +137,8 @@ Every source table must define:
 
 **Severity**: schema and key contract tests use `severity: error`. Value contract tests may use `warn` when the source is known to be noisy; document why in the test or column description.
 
+**No thresholds**: never set `warn_if` / `error_if` on any test, in any layer. If something is wrong, the test fails, even for a known, documented issue. Explain that it fails on purpose, why, and which analysis to rerun (no counts: see "No counts or profiling results in documentation"), so the failure is explained but still visible. Write it in the model description's **Edge cases** only, never on the test. **Sources report no data quality at all**: a source table description holds only purpose, grain, load / test scope and freshness, with no findings or evidence queries (pattern in the `onboard-raw-source` skill); a known source failure is explained in the staging model that handles the table. Shared column doc blocks may keep a short join warning (e.g. "Not unique … never join on it"), because staging reuses them. A failing test gets no `description` and no inline comment.
+
 **Package dependency**: Elementary (in `packages.yml`) is required for the schema contract. `dbt_utils` (composite keys) and `dbt_expectations` (use the maintained `metaplane/dbt_expectations`) are optional extras. If a source needs an optional package that isn't in `packages.yml`, ask the user before adding it and running `dbt deps`. If a source needs them and they are not in `packages.yml`, ask the user before adding them and running `dbt deps`.
 
 **YAML syntax (dbt ≥ 1.10.8)**: declare tests under `data_tests:` (not `tests:`), and put every generic-test input under `arguments:`. Only framework settings (`severity`, `where`, …) go under `config:`. Top-level arguments raise `MissingArgumentsPropertyInGenericTestDeprecation`.
@@ -141,7 +156,25 @@ sources:
     tables:
       - name: deal_changes
         description: >
-          One row per change to a deal field. Contract tests cover the full table (static load).
+          Change log of deal fields.
+
+
+          **Grain**: one row per deal, change time and changed field (`deal_id`, `change_time`,
+          `changed_field_key`). `init.sql` declares no key; a test checks that the combination is unique.
+
+
+          **Load / test scope**: static load from `raw_data/deal_changes.csv`. Contract tests cover the full
+          table.
+
+
+          **Freshness**: none expected today, because the data is a static load. For a live feed the
+          check is ready on `change_time`: warning after 1 day, error after 2 days.
+        config:
+          tags: ["pipedrive"]
+          loaded_at_field: change_time
+          freshness:
+            warn_after: {count: 1, period: day}
+            error_after: {count: 2, period: day}
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
@@ -168,7 +201,18 @@ sources:
 
       - name: activity
         description: >
-          One row per sales activity on a deal. Contract tests cover the full table (static load).
+          Sales activities (calls, meetings, follow-ups) linked to deals and assigned to users.
+
+
+          **Grain**: one row per activity per deal (`activity_id`, `deal_id`). `init.sql` declares no key; a
+          test checks that the pair is unique.
+
+
+          **Load / test scope**: static load from `raw_data/activity.csv`. Contract tests cover the full
+          table.
+
+
+          **Freshness**: checked on `due_to` (see the `onboard-raw-source` skill for the wording).
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
@@ -267,7 +311,8 @@ models:
 
 ### Model Organization
 
-- **Follow naming conventions**: `stg_` for staging, `int_` for intermediate, and `fct_` / `dim_` / `rep_` for marts (e.g., `rep_sales_funnel_monthly`)
+- **Project tag (mandatory)**: every model and every source table carries the tag of the project it belongs to (this repo: `pipedrive`), so a whole project can be run, tested or checked for freshness with `--select tag:<project>`. Set it **in both places**: once in `dbt_project.yml` (`models: <dbt project>: +tags` and `sources: <dbt project>: +tags`), and again in every resource's own YAML, so a reader sees it in the file: `config: tags: ["pipedrive"]` on each model, and on each source table (under its `config:`). When `tags` already lists other tags (`daily`, `incremental`), the project tag comes first in that list. dbt tags "are additive across project hierarchy" ([dbt docs](https://docs.getdbt.com/reference/resource-configs/tags)), so the repeat changes no selection and model-level tags stack on top. When a second project or source system is added, move the tag down to that project's folders (e.g. `staging/<system>`) so each project gets its own
+- **Follow naming conventions**: `stg_<source>__<entity>s` for staging (dbt's convention, e.g. `stg_pipedrive__activities`), `int_` for intermediate, and `fct_` / `dim_` / `rep_` for marts (e.g., `rep_sales_funnel_monthly`)
 - **Respect the layer flow**: sources → staging → intermediate → marts. Staging selects only from sources; marts never select directly from sources
 - **Use consistent materialization strategies** based on model purpose and size
 - **Document model dependencies** clearly in descriptions
@@ -287,7 +332,7 @@ Use this whenever authoring or reviewing incremental models.
 
 | Strategy | SQL pattern | Late-arriving data | Needs `tag: incremental`? |
 |----------|-------------|--------------------|---------------------------|
-| **Lookback buffer** | Inside `{% if is_incremental() %}`, a sliding window such as `updated_at >= (select max(updated_at) from {{ this }}) - interval 'N days'`, or OR-ed lookbacks on multiple timestamps | Reprocesses the last **N days** on each run | **Yes** |
+| **Lookback buffer** | Inside `{% if is_incremental() %}`, a sliding window such as `updated_at >= (select max(updated_at) from {{ this }}) - interval 'N days'`, or OR-ed lookbacks on multiple timestamps. In this project, write it with the `incremental_lookback_filter` macro (see the README's "Incremental Models" section) | Reprocesses the last **N days** on each run | **Yes** |
 
 #### When `tag: incremental` is required
 
@@ -332,6 +377,8 @@ config:
 - [ ] Every model and seed has its own single-model YAML file in the same directory
 - [ ] Model description includes row granularity and business purpose
 - [ ] Edge cases documented where applicable
+- [ ] No counts, profiling results, data date ranges or "today" claims in any description, doc block or test comment; findings point to their `analyses/` file
+- [ ] Every test that fails on purpose is explained in the model description, not on the test; source table descriptions hold only purpose, grain, load / test scope and freshness
 - [ ] Model/seed/source/table descriptions are inline in the YAML, not `{{ doc() }}` references
 - [ ] Every column description is a `{{ doc() }}` reference to a `_docs.md` doc block (shared keys reused)
 - [ ] Tests only on transformed/critical columns
@@ -344,4 +391,5 @@ config:
 - [ ] Materialization strategy appropriate for model size/usage
 - [ ] Incremental models with a lookback buffer have `tag: incremental` in `config.tags`
 - [ ] Schedule tags (`hourly` / `daily` / `12h`) are in `config.tags`, not `meta.tags`
+- [ ] Model / source table carries its project tag (`pipedrive`) in `dbt_project.yml` **and** in its own YAML `config: tags` (check with `dbt ls --select tag:pipedrive`)
 - [ ] Model is named with the correct layer prefix (`stg_` / `int_` / `fct_` / `dim_` / `rep_`) and lives in the matching folder

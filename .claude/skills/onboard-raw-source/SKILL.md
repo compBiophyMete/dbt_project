@@ -21,6 +21,16 @@ Standards for descriptions, doc blocks, test scope, and contracts live in [.clau
 3. **Tests come from evidence.** Every key/value test is backed by a profiling query you ran. Never add a test you haven't checked against the data, and never silently drop a test because the data fails it (see step 5).
 4. **Read-only on the database**: only `select` queries via `dbt show` (MCP `mcp__dbt__show`, or `dbt show --inline`).
 
+## Challenge the request first
+
+Follow [.claude/rules/challenge-modeling-requests.md](../../rules/challenge-modeling-requests.md): check the request against best practice, prove a conflict with profiling numbers, propose the alternative, and let the user decide. Warning signs when onboarding a source:
+
+| Warning sign | Why it's wrong | Best-practice alternative |
+|---|---|---|
+| **Declaring only some columns**, or types from memory | the schema contract can't catch added, removed or retyped columns | declare every column with its warehouse `data_type` |
+| **Transforming or filtering in the source definition** | sources describe the raw table as it is | clean in staging |
+| **A 30-day test window on a static load** | it selects nothing, so every test passes without checking anything | full-table scope for static loads |
+
 ## Procedure
 
 ### 1. Discover the scope
@@ -82,8 +92,8 @@ Show the user a compact profile table per source table before writing YAML.
 
 Per the rule's "Source YAML Testing Rule":
 
-- Tables loaded by `raw_data/load_data.sh` from CSV are a **static, one-time load** → test the **full table**, no `where` filter, and **no `freshness` block** (it would always fail).
-- If the user says a table is loaded on an ongoing basis, use the 30-day `where` window on its load/change timestamp, and ask whether it is critical enough for a `freshness` check.
+- Tables loaded by `raw_data/load_data.sh` from CSV are a **static, one-time load** → test the **full table**, no `where` filter. They still get a **freshness check** on a timestamp column (or a commented one waiting for `_loaded_at`), so the project is ready for a live feed; on the static data it reports error, as expected. See step 6.
+- If the user says a table is loaded on an ongoing basis, use the 30-day `where` window on its load/change timestamp, and ask whether it loads daily or hourly to pick the freshness thresholds.
 - If unsure, ask. State the chosen scope in each table description.
 
 ### 5. Choose the tests
@@ -98,7 +108,7 @@ Map evidence → tests (see the rule's "Source Data Contract Tests"):
 | Value | `not_null` on columns downstream logic needs | error, or warn if known noisy |
 | Value | `accepted_values` on enumerations | error, or warn if known noisy |
 
-**When the data already fails a contract test** (duplicate PKs, orphan FKs, unexpected values): keep the test, report the finding with counts, and ask the user whether to keep it at `error` (build fails until fixed upstream) or `severity: warn` with the reason written in the column/test description. Never weaken a test silently.
+**When the data already fails a contract test** (duplicate PKs, orphan FKs, unexpected values): keep the test, report the finding to the user with counts (in chat, and in an `analyses/` file via the `write-eda-analysis` skill), and ask whether to keep it at `error` (build fails until fixed upstream) or `severity: warn`. Either way, don't document it in the source: no table-description section, no test description or comment (see the standard table-description pattern in step 6). The staging model that handles the table explains it in its Edge cases. Never weaken a test silently.
 
 **Schema contract**: on its own, `data_type` on a source is documentation only. dbt has no built-in check and `contract: enforced` isn't available on sources. `elementary.schema_changes_from_baseline` is what enforces "every column, exactly as is":
 - `fail_on_added: true` fails on any warehouse column missing from the YAML. Without it, new columns are silently ignored.
@@ -131,7 +141,7 @@ columns:
             to: source('postgres_public', 'activity_types')
             field: type
           config:
-            severity: warn   # reason documented in the column description
+            severity: warn   # explained in the staging model's Edge cases, not in the source
 ```
 
 ### 6. Write the files
@@ -148,13 +158,99 @@ For this project `<system>` is `pipedrive` and the source keeps its existing nam
 
 **`_<system>__sources.yml`**
 
-- `version: 2`; source-level `description` (system, load mechanism, refresh = static/ongoing), written inline.
-- One entry per table, in alphabetical order. The table `description` is written **inline in the YAML** (a `>` block), never as a `{{ doc() }}` reference. It includes:
-  1. Purpose (what the business entity/event is)
-  2. **Grain** — "One row per …" (or "No enforced grain: …" if profiling found none)
-  3. Load + test scope — "Static load from `raw_data/<file>.csv`; contract tests cover the full table."
-  4. Known data-quality findings from profiling (counts), if any
-- Table-level `data_tests:` with `elementary.schema_changes_from_baseline` (plus any composite-key test).
+Reference: `models/staging/pipedrive/_pipedrive__sources.yml`. Copy its structure exactly.
+
+- `version: 2`, then one source with `name`, `database`, `schema` and an inline `description` (`>` block) of two sections, separated by two blank lines:
+  1. **Load mechanism** (no heading): the system, how the tables are loaded (`raw_data/load_data.sh`, created by `init.sql`), whether anything reloads them, and so the test scope (full table for a static load).
+  2. **`**Freshness assumption**`**: that no freshness is expected while the load is static but the project is ready for a live feed (`dbt source freshness`); the schedule-based thresholds (daily → warn 1 day / error 2 days, hourly → warn 1 hour / error 2 hours); the **assumed schedule** (daily today); which tables have an active check and on which column; which wait for `_loaded_at`; and that active checks report error on the static data, as expected. Update this section whenever a table's check changes.
+- One entry per table, in alphabetical order, with its keys in this order: `name`, `description`, `config`, `data_tests` (table level), `columns`. Every table has a `config:` that starts with `tags: ["pipedrive"]` (the project tag, rule "Project tag"), followed by the freshness settings, or their commented `# TODO` lines.
+- Table-level `data_tests:`: `elementary.schema_changes_from_baseline` first, then a composite-key test with the comment `# the grain: (…)` if the grain spans several columns, then any cross-column test. A short inline comment may explain **what a test checks** (e.g. `# each type must sit next to its name`), never that it fails on purpose.
+
+**Standard table-description pattern.** A source table description says only what the table is and how it's loaded: **no data-quality findings, no evidence queries, no links to `analyses/`**. Findings belong in the staging model that handles them (its **Edge cases**) and in `analyses/`. Written for technical and non-technical readers alike. Sections in this order, separated by **two blank lines** (inside a folded `>` block, one blank line doesn't start a new paragraph in dbt docs):
+
+1. **Purpose** (no heading): one sentence saying what the business entity or event is. For a table that stands in for a missing one, say so (e.g. `deal_changes`: "The source has no deals table, so …").
+2. **`**Grain**`**: "one row per … (`col`, `col`)", then either "`init.sql` declares `<col>` as the key" or "`init.sql` declares no key; a test checks that the … is unique". Name an alternate unique column and what references it ("`type` is also unique, and it is the column that `activity.type` points to"). No explanation of why another key fails: that is a finding.
+3. **`**Load / test scope**`**: "static load from `raw_data/<file>.csv`. Contract tests cover the full table." (or the 30-day window on `<timestamp_col>` for an ongoing load).
+4. **`**Freshness**`**: every table gets one of two wordings:
+   - **Table with a timestamp** (active check): "none expected today, because the data is a static load. For a live feed the check is ready on `<col>`: warning when the latest <col meaning> is more than 1 day old, error after 2 days." Then one sentence on what the column measures, and if it isn't a load timestamp, the trade-off and "switch to one (e.g. `_loaded_at`) once the loader adds it". End with "On the static data the check reports error, as expected." Add the `config:` block below the description.
+   - **Table without a load timestamp**: "none today. The table has no load timestamp, and the data is a static load. Once the loader adds `_loaded_at`, a freshness check on it is added with thresholds that follow the load schedule: daily load → warning after 1 day, error after 2 days; hourly load → warning after 1 hour, error after 2 hours." Under `config:`, after the tag, add the freshness lines commented out below a `# TODO`. Never point `loaded_at_field` at a column that doesn't exist yet.
+
+Freshness config lives under the table's `config:` (top-level `loaded_at_field` / `freshness` is deprecated in dbt 1.10). **Thresholds follow the load schedule**: daily → `warn_after: {count: 1, period: day}`, `error_after: {count: 2, period: day}`; hourly → `{count: 1, period: hour}` / `{count: 2, period: hour}`.
+
+Nothing else in a table description: no counts, no "Data quality" or topic sections, no Evidence line. (Shared column doc blocks are the exception: a short join warning such as "Not unique … never join on it" stays, since staging reuses the block.) A test that fails on purpose is not explained in the source and gets no test `description` or comment; the staging model's Edge cases explain it.
+
+Table with a timestamp:
+
+```yaml
+      - name: deal_changes
+        description: >
+          Change log of deal fields: each row records that a deal field (`changed_field_key`) was set to
+          `new_value` at `change_time`. The source has no deals table, so deal creation (`add_time`), stage
+          moves (`stage_id`), owner changes (`user_id`) and lost reasons (`lost_reason`) all come from this
+          table.
+
+
+          **Grain**: one row per deal, change time and changed field (`deal_id`, `change_time`,
+          `changed_field_key`). `init.sql` declares no key; a test checks that the combination is unique.
+
+
+          **Load / test scope**: static load from `raw_data/deal_changes.csv`. Contract tests cover the full
+          table.
+
+
+          **Freshness**: none expected today, because the data is a static load. For a live feed the
+          check is ready on `change_time`: warning when the latest change is more than 1 day old, error
+          after 2 days. `change_time` is when a deal field changed, so it moves forward whenever deals
+          are worked. On the static data the check reports error, as expected.
+        config:
+          tags: ["pipedrive"]
+          loaded_at_field: change_time
+          freshness:
+            warn_after: {count: 1, period: day}
+            error_after: {count: 2, period: day}
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: ["deal_id", "change_time", "changed_field_key"]
+```
+
+Table without a load timestamp:
+
+```yaml
+      - name: stages
+        description: >
+          Lookup of the sales pipeline stages, in funnel order.
+
+
+          **Grain**: one row per pipeline stage (`stage_id`). `init.sql` declares `stage_id` as the key.
+
+
+          **Load / test scope**: static load from `raw_data/stages.csv`. Contract tests cover the full
+          table.
+
+
+          **Freshness**: none today. The table has no load timestamp, and the data is a static load. Once
+          the loader adds `_loaded_at`, a freshness check on it is added with thresholds that follow the
+          load schedule: daily load → warning after 1 day, error after 2 days; hourly load → warning
+          after 1 hour, error after 2 hours.
+        config:
+          tags: ["pipedrive"]
+          # TODO: once `_loaded_at` exists (declare the column too), uncomment and pick the load schedule:
+          # loaded_at_field: _loaded_at
+          # freshness:
+          #   warn_after: {count: 1, period: day}    # hourly load: {count: 1, period: hour}
+          #   error_after: {count: 2, period: day}   # hourly load: {count: 2, period: hour}
+        data_tests:
+          - elementary.schema_changes_from_baseline:
+              arguments:
+                fail_on_added: true
+                enforce_types: true
+```
+
 - `columns`: every column in ordinal order, each with `name`, `data_type`, `description: "{{ doc('<key>') }}"`, and `data_tests` where applicable. Every column description is a doc reference; no inline column text.
 
 **`_<system>__docs.md`**
@@ -173,10 +269,15 @@ For this project `<system>` is `pipedrive` and the source keeps its existing nam
 
 ## Done when
 
+- [ ] Carries the project tag (`pipedrive`) in `dbt_project.yml` and in its own YAML (`config: tags: ["pipedrive"]`, first in the list when other tags exist; rule: "Project tag")
 - [ ] Every target table's YAML column list equals the warehouse columns (names, order, `data_type` without size), enforced by `elementary.schema_changes_from_baseline` passing on every table
 - [ ] Tests use `data_tests:` with inputs under `arguments:`; `dbt parse` shows no test-syntax deprecation warnings
 - [ ] No raw file, loader, or warehouse table modified
-- [ ] Each table has a grain statement, test-scope statement, and a key + value contract backed by profiling evidence
+- [ ] The source description has the load mechanism and a **Freshness assumption** section that lists the active and pending checks
+- [ ] Each table description follows the standard pattern (Purpose, Grain, Load / test scope, Freshness), separated by two blank lines, with no data-quality findings, evidence queries or counts
+- [ ] Every table with a timestamp has a `config:` freshness check with schedule-based thresholds; every other table has the commented `# TODO` freshness lines for `_loaded_at` under its `config:`
+- [ ] No test description or comment explains a known failure in the source
+- [ ] Each table has a key + value contract backed by profiling evidence
 - [ ] Source and table descriptions are inline in the YAML; every column description is a `{{ doc() }}` reference to a block in `_<system>__docs.md`, with shared columns using shared keys
 - [ ] Only one definition per source/table in the project; existing `source()` refs still resolve
 - [ ] `dbt parse` clean; source tests run and results (including failures) reported to the user
