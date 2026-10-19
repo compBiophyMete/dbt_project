@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: int_funnel_steps_mapped
+    description: >
+      The steps of the sales funnel: the one place where stages and activity types are mapped to
+      funnel steps. Used by `int_deal_funnel_steps_unioned` to assign deals to steps, by
+      `rep_sales_funnel_monthly` as the closed step list of its month × step grid, and exposed in
+      `dim_funnel_steps`.
+
+
+      **Grain**: one row per funnel step (`funnel_step`). **Join on `funnel_step`.**
+
+
+      **Transformations and business logic**:
+
+      - Stage steps: every stage of `stg_pipedrive__stages`; stage N is step `'N'`, `kpi_name` = `stage_name`.
+
+      - Call steps: activity type `meeting` → `'2.1'` (Sales Call 1), `sc_2` → `'3.1'` (Sales Call 2); `kpi_name` = `activity_type_name`.
+
+      - Each step is made of exactly one stage or one activity type.
+
+      - `funnel_step` is text so it can hold `'2.1'`; sorted as text it gives the funnel order. A step `'10'` would need an order column.
+
+
+      **Edge cases**: a new stage or a renamed one in Pipedrive fails the `accepted_values` tests
+      on `funnel_step` and `kpi_name` until it is agreed.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+    data_tests:
+      # each step is made of exactly one stage or one activity type
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(stage_id is null) <> (activity_type is null)"
+    columns:
+      - name: funnel_step
+        description: "{{ doc('funnel_step') }}"
+        data_tests:
+          - unique   # the grain
+          - not_null   # also proves the call mapping is closed
+          - accepted_values:   # the 11 steps of the brief
+              arguments:
+                values: ["1", "2", "2.1", "3", "3.1", "4", "5", "6", "7", "8", "9"]
+      - name: stage_id
+        description: "{{ doc('int_funnel_steps_mapped__stage_id') }}"
+      - name: activity_type
+        description: "{{ doc('int_funnel_steps_mapped__activity_type') }}"
+      - name: kpi_name
+        description: "{{ doc('kpi_name') }}"
+        data_tests:
+          - not_null
+          - unique
+          - accepted_values:   # the 11 step names of the brief
+              arguments:
+                values:
+                  - "Lead Generation"
+                  - "Qualified Lead"
+                  - "Sales Call 1"
+                  - "Needs Assessment"
+                  - "Sales Call 2"
+                  - "Proposal/Quote Preparation"
+                  - "Negotiation"
+                  - "Closing"
+                  - "Implementation/Onboarding"
+                  - "Follow-up/Customer Success"
+                  - "Renewal/Expansion"
