@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: stg_pipedrive__activity_types
+    description: >
+      Cleaned lookup of the Pipedrive activity types, one-to-one with the raw `activity_types` source.
+
+
+      **Grain**: one row per activity type (`activity_type_id`). `activity_type` is also unique.
+
+
+      **Transformations**: `id` → `activity_type_id`, `type` → `activity_type` (trimmed,
+      lowercased), `name` → `activity_type_name` (trimmed, empty → null, `capitalize_words`),
+      `active` → `is_activity_type_active` (`'Yes'` → `true`, `'No'` → `false`, case-insensitive; any
+      other value stays null and fails `not_null`).
+
+
+      **Edge cases**: `follow_up` is inactive.
+
+
+      **Refresh**: view, always current with the source. Freshness is checked on the source
+      (`postgres_public`).
+    config:
+      tags: ["pipedrive"]
+    columns:
+      - name: activity_type_id
+        description: "{{ doc('activity_types__id') }}"
+        data_tests:
+          - unique
+          - not_null
+      - name: activity_type
+        description: "{{ doc('activity_type') }}"
+        data_tests:
+          - unique
+          - not_null   # proves trim / nullif lost no values
+      - name: activity_type_name
+        description: "{{ doc('activity_types__name') }}"
+        data_tests:
+          - not_null   # proves trim / nullif lost no values
+          - accepted_values:   # capitalize_words applied; same list as the source test on initcap(name)
+              arguments:
+                values: ["Sales Call 1", "Sales Call 2", "Follow Up Call", "After Close Call"]
+      - name: is_activity_type_active
+        description: "{{ doc('stg_pipedrive__activity_types__is_activity_type_active') }}"
+        data_tests:
+          - not_null   # anything other than Yes / No in the raw `active` arrives as null
+          - accepted_values:
+              arguments:
+                values: [true, false]
+                quote: false

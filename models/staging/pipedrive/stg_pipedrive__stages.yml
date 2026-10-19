@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: stg_pipedrive__stages
+    description: >
+      Cleaned lookup of the Pipedrive pipeline stages, one-to-one with the raw `stages` source.
+
+
+      **Grain**: one row per stage (`stage_id`), in funnel order.
+
+
+      **Transformations**: `stage_name` trimmed, empty → null, `capitalize_words` (e.g. "Qualified
+      lead" → "Qualified Lead").
+
+
+      **Edge cases**: `stage_name` is re-cased, so join on `stage_id`, not on the name.
+
+
+      **Refresh**: view, always current with the source. Freshness is checked on the source
+      (`postgres_public`).
+    config:
+      tags: ["pipedrive"]
+    data_tests:
+      - dbt_utils.relationships_where:   # every (stage_id, stage_name) pair exists in the stage picklist of the fields metadata
+          arguments:
+            column_name: "stage_id || '|' || stage_name"
+            to: ref('int_fields_unnested_to_options')
+            field: "option_id || '|' || option_label"
+            to_condition: "field_key = 'stage_id'"
+    columns:
+      - name: stage_id
+        description: "{{ doc('stage_id') }}"
+        data_tests:
+          - unique
+          - not_null
+      - name: stage_name
+        description: "{{ doc('stages__stage_name') }}"
+        data_tests:
+          - unique
+          - not_null   # proves trim / nullif lost no values
+          - accepted_values:   # capitalize_words applied
+              arguments:
+                values:
+                  - "Lead Generation"
+                  - "Qualified Lead"
+                  - "Needs Assessment"
+                  - "Proposal/Quote Preparation"
+                  - "Negotiation"
+                  - "Closing"
+                  - "Implementation/Onboarding"
+                  - "Follow-up/Customer Success"
+                  - "Renewal/Expansion"

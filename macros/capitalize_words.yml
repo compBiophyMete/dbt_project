@@ -1,0 +1,17 @@
+version: 2
+
+macros:
+  - name: capitalize_words
+    description: >
+      Display-name casing used in staging: upper-cases the first letter of each word (words split
+      on whitespace) and keeps every other letter exactly as in the source. Replaces Postgres
+      `initcap()`, which also capitalizes after a hyphen or slash and lower-cases the rest of each
+      word: `initcap('Follow-up/Customer Success')` gives "Follow-Up/Customer Success", while this
+      macro keeps "Follow-up/Customer Success" and still turns "Qualified lead" into "Qualified
+      Lead". Runs of whitespace collapse to one space. A null input returns null. Pass a trimmed
+      expression with empty strings already mapped to null, e.g.
+      `capitalize_words("nullif(trim(stage_name), '')")` inside a Jinja expression.
+    arguments:
+      - name: expression
+        type: string
+        description: SQL expression of type text to capitalize, e.g. `nullif(trim(name), '')`.

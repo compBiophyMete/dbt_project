@@ -1,0 +1,76 @@
+version: 2
+
+models:
+  - name: stg_pipedrive__activities
+    description: >
+      Cleaned Pipedrive sales activities (calls, meetings, follow-ups), one-to-one with the raw
+      `activity` source.
+
+
+      **Grain**: one row per activity and deal (`activity_id`, `deal_id`). **Join on both, never on
+      `activity_id` alone**: some IDs are reused on a second deal.
+
+
+      **Transformations**: `assigned_to_user` → `assigned_user_id`, `type` → `activity_type`
+      (trimmed, lowercased, empty → null), `done` → `is_done` (`coalesce(done, false)`: unknown
+      completion is not counted as done), `due_to` → `due_at`. No rows deduplicated.
+
+
+      **Edge cases**:
+
+      - Reused `activity_id`s are kept on both deals. Evidence: `analyses/profile_staging_grains.sql`.
+
+      - Almost no `deal_id`s appear in `deal_changes`, the only deal list. The `relationships` test on `deal_id` fails on purpose until the source links activities to deals. Evidence: `analyses/profile_activity_deal_linkage.sql`.
+
+
+      **Refresh**: view, always current with the source. Freshness is checked on the source
+      (`postgres_public`).
+    config:
+      tags: ["pipedrive"]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # enforces the documented join key (activity_id, deal_id)
+          arguments:
+            combination_of_columns: ["activity_id", "deal_id"]
+    columns:
+      - name: activity_id
+        description: "{{ doc('activity__activity_id') }}"
+        data_tests:
+          - not_null
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - not_null   # part of the grain; unique_combination_of_columns does not catch nulls
+          - relationships:
+              arguments:
+                to: ref('stg_pipedrive__deal_changes')
+                field: deal_id
+      - name: assigned_user_id
+        description: "{{ doc('activity__assigned_to_user') }}"
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_pipedrive__users')
+                field: user_id
+      - name: activity_type
+        description: "{{ doc('activity_type') }}"
+        data_tests:
+          - not_null   # proves trim / nullif lost no values
+          - accepted_values:
+              arguments:
+                values: ["after_close_call", "follow_up", "meeting", "sc_2"]
+          - relationships:   # both sides are lowercased in staging; proves the join key still matches
+              arguments:
+                to: ref('stg_pipedrive__activity_types')
+                field: activity_type
+      - name: is_done
+        description: "{{ doc('stg_pipedrive__activities__is_done') }}"
+        data_tests:
+          - not_null   # guaranteed by coalesce(done, false)
+          - accepted_values:
+              arguments:
+                values: [true, false]
+                quote: false
+      - name: due_at
+        description: "{{ doc('activity__due_to') }}"
+        data_tests:
+          - dbt_utils.not_constant   # fails if every activity has the same due date (e.g. a loader default)
