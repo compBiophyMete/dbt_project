@@ -34,6 +34,38 @@ models:
     # Config indicated by + and applies to all files under models/example/
     +schema: pipedrive_analytics
     +materialized: table
+    # Project tag: every model belongs to the Pipedrive project (`dbt run --select tag:pipedrive`).
+
+    # Staging models are thin one-to-one cleanups of a source: always views,
+    # so they stay in sync with the raw tables and cost no storage.
+    staging:
+      +materialized: view
+      +docs:
+        node_color: "#2E8B57"     # green: marks staging nodes in the dbt docs lineage graph
+      # One block per source folder: schema stg_<folder>, models stg_<folder>__<entity>s.
+      pipedrive:
+        +schema: stg_pipedrive    # used as-is (macros/generate_schema_name.sql): stg_pipedrive.stg_pipedrive__<entity>s
+
+    # Intermediate models are internal building blocks (joins, business logic, re-graining):
+    # tables in their own schema, kept apart from the public marts.
+    intermediate:
+      +materialized: table
+      +tags: ["daily"]            # schedule tag: refreshed by the daily Airflow DAG (orchestration/airflow/dags)
+      +schema: int_pipedrive      # used as-is (macros/generate_schema_name.sql): int_pipedrive.int_<…>
+      +docs:
+        node_color: "#4682B4"     # blue: marks intermediate nodes in the dbt docs lineage graph
+
+    # Marts are the public layer (dims, facts, reports): tables, so dashboards read precomputed
+    # results instead of recomputing on every refresh. No mart is incremental: every mart joins its
+    # labels at build time (a rename must reach every row) and has rows that change after they are
+    # written (current deal attributes). Incremental loading
+    # lives upstream, in the immutable event models (int_deal_*) and int_users.
+    marts:
+      +materialized: table
+      +tags: ["daily"]            # schedule tag: refreshed by the daily Airflow DAG (orchestration/airflow/dags)
+      +schema: pipedrive_analytics  # used as-is (macros/generate_schema_name.sql): the public schema
+      +docs:
+        node_color: "#D4A017"     # gold: marks mart nodes in the dbt docs lineage graph
 
   # Elementary's own tables (run/test results) live in a separate schema:
   # <target schema>_elementary
@@ -41,6 +73,11 @@ models:
     +schema: elementary
     +docs:
       show: false   # keep Elementary's internal models out of the dbt docs site
+
+# Project tag on every source table of this project (`dbt source freshness --select tag:pipedrive`).
+sources:
+  enpal_assessment_project:
+    +tags: ["pipedrive"]
 
 # Required by Elementary on dbt >= 1.8: lets its test materialization capture
 # failing-row samples, and runs its hooks on `dbt source freshness`.
