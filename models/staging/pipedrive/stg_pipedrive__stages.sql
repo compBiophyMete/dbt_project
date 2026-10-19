@@ -3,9 +3,9 @@ with
 source as (
 
     select
-        {{ dbt_utils.star(from=source('postgres_public', 'stages')) }}
+        {{ dbt_utils.star(from=source('pipedrive', 'stages')) }}
     from
-        {{ source('postgres_public', 'stages') }}
+        {{ source('pipedrive', 'stages') }}
 
 ),
 

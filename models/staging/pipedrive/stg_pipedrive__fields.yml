@@ -22,7 +22,7 @@ models:
 
 
       **Refresh**: view, always current with the source. Freshness is checked on the source
-      (`postgres_public`).
+      (`pipedrive`).
     config:
       tags: ["pipedrive"]
     columns:

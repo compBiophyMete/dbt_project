@@ -1,8 +1,8 @@
 version: 2
 
 sources:
-  - name: postgres_public
-    database: postgres
+  - name: pipedrive
+    database: "{{ target.database }}"   # the database dbt connects to: postgres locally, a per-PR clone in CI
     schema: public
     description: >
       Raw Pipedrive CRM data. Each CSV in `raw_data/` is loaded once, with no changes, into a table of
@@ -67,7 +67,7 @@ sources:
                     values: ["after_close_call", "follow_up", "meeting", "sc_2"]
               - relationships:
                   arguments:
-                    to: source('postgres_public', 'activity_types')
+                    to: source('pipedrive', 'activity_types')
                     field: type
           - name: assigned_to_user
             data_type: integer
@@ -76,7 +76,7 @@ sources:
               - not_null
               - relationships:
                   arguments:
-                    to: source('postgres_public', 'users')
+                    to: source('pipedrive', 'users')
                     field: id
           - name: deal_id
             data_type: integer
@@ -85,7 +85,7 @@ sources:
               - not_null
               - relationships:
                   arguments:
-                    to: source('postgres_public', 'deal_changes')
+                    to: source('pipedrive', 'deal_changes')
                     field: deal_id
           - name: done
             data_type: boolean
@@ -231,7 +231,7 @@ sources:
                     values: ["add_time", "stage_id", "user_id", "lost_reason"]
               - relationships:
                   arguments:
-                    to: source('postgres_public', 'fields')
+                    to: source('pipedrive', 'fields')
                     field: field_key
           - name: new_value
             data_type: character varying
