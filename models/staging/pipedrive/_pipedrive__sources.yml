@@ -7,45 +7,56 @@ sources:
     description: >
       Raw Pipedrive CRM data. Each CSV in `raw_data/` is loaded once, with no changes, into a table of
       the same name in `postgres.public` by `raw_data/load_data.sh`. The tables are created by `init.sql`.
-      Nothing reloads them on a schedule, so the source has no freshness check and every contract test
-      covers the full table (static load).
+      Nothing reloads them on a schedule today, so every contract test covers the full table (static
+      load).
+
+
+      **Freshness assumption**: no freshness is expected while the load is static, but the project is
+      ready for a live feed (`dbt source freshness`). Thresholds follow the load schedule: daily load →
+      warning after 1 day, error after 2 days; hourly load → warning after 1 hour, error after 2
+      hours. The feed is assumed to be **daily**, so the active checks use the daily thresholds:
+      `activity` on `due_to` and `deal_changes` on `change_time`. `activity_types`, `fields`, `stages`
+      and `users` have no load timestamp; their checks switch on once the loader adds `_loaded_at`.
+      On the static data the active checks report error, as expected.
     tables:
       - name: activity
         description: >
-          Sales activities (calls, meetings, follow-ups) scheduled against deals and assigned to a user.
+          Sales activities (calls, meetings, follow-ups) linked to deals and assigned to users.
 
 
-          **Grain**: intended to be one row per activity (`activity_id`). The ID is not unique in the raw
-          data: 11 `activity_id`s appear twice (22 rows), and each pair has a different type, user, deal and
-          due date, so they are not plain copies. `init.sql` declares no primary key.
+          **Grain**: one row per activity per deal (`activity_id`, `deal_id`). `init.sql` declares no key; a
+          test checks that the pair is unique.
 
 
-          **Load / test scope**: static load from `raw_data/activity.csv`. Contract tests cover the full table.
+          **Load / test scope**: static load from `raw_data/activity.csv`. Contract tests cover the full
+          table.
 
 
-          **Known data-quality findings** (profiled 2026-10-15, 4,579 rows):
-
-
-          - 11 duplicated `activity_id`s, so the `unique` test is set to `warn`.
-
-          - Only 8 of the 4,572 distinct `deal_id`s also appear in `deal_changes`. The source has no deals
-            table, so `deal_id` has no relationships test.
-
-          - `due_to` ranges from 2024-01-01 to 2024-09-13.
+          **Freshness**: none expected today, because the data is a static load. For a live feed the
+          check is ready on `due_to`: warning when the latest due_to is more than 1 day old, error
+          after 2 days. The table has no load timestamp; switch to one (e.g. `_loaded_at`) once the loader adds it. On the static
+          data the check reports error, as expected.
+        config:
+          tags: ["pipedrive"]
+          loaded_at_field: due_to
+          freshness:
+            warn_after: {count: 1, period: day}
+            error_after: {count: 2, period: day}
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
                 fail_on_added: true
                 enforce_types: true
+          - dbt_utils.unique_combination_of_columns:   # the grain: (activity_id, deal_id)
+              arguments:
+                combination_of_columns: ["activity_id", "deal_id"]
         columns:
           - name: activity_id
             data_type: integer
             description: "{{ doc('activity__activity_id') }}"
             data_tests:
               - not_null
-              - unique:
-                  config:
-                    severity: warn   # 11 known duplicated IDs in the raw data; staging must resolve them
+              - unique
           - name: type
             data_type: character varying
             description: "{{ doc('activity_type') }}"
@@ -72,11 +83,19 @@ sources:
             description: "{{ doc('deal_id') }}"
             data_tests:
               - not_null
+              - relationships:
+                  arguments:
+                    to: source('postgres_public', 'deal_changes')
+                    field: deal_id
           - name: done
             data_type: boolean
             description: "{{ doc('activity__done') }}"
             data_tests:
               - not_null
+              - accepted_values:
+                  arguments:
+                    values: [true, false]
+                    quote: false
           - name: due_to
             data_type: timestamp without time zone
             description: "{{ doc('activity__due_to') }}"
@@ -88,20 +107,45 @@ sources:
           Lookup of the activity types that can be logged in Pipedrive.
 
 
-          **Grain**: one row per activity type (`id`, declared primary key). `type` is also unique and is the
-          key that `activity.type` references.
+          **Grain**: one row per activity type (`id`). `init.sql` declares `id` as the key. `type` is also
+          unique, and it is the column that `activity.type` points to.
 
 
-          **Load / test scope**: static load from `raw_data/activity_types.csv` (4 rows). Contract tests cover
-          the full table.
+          **Load / test scope**: static load from `raw_data/activity_types.csv`. Contract tests cover the full
+          table.
 
 
-          **Known data-quality findings**: `follow_up` has `active = 'No'`, yet 1,133 activities use it.
+          **Freshness**: none today. The table has no load timestamp, and the data is a static load. Once
+          the loader adds `_loaded_at`, a freshness check on it is added with thresholds that follow the
+          load schedule: daily load → warning after 1 day, error after 2 days; hourly load → warning
+          after 1 hour, error after 2 hours.
+        config:
+          tags: ["pipedrive"]
+          # TODO: once `_loaded_at` exists (declare the column too), uncomment and pick the load schedule:
+          # loaded_at_field: _loaded_at
+          # freshness:
+          #   warn_after: {count: 1, period: day}    # hourly load: {count: 1, period: hour}
+          #   error_after: {count: 2, period: day}   # hourly load: {count: 2, period: hour}
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
                 fail_on_added: true
                 enforce_types: true
+          # name is compared as initcap(name), the test ignores case only
+          - accepted_values:
+              arguments:
+                column_name: "initcap(name)"
+                values: ["Sales Call 1", "Sales Call 2", "Follow Up Call", "After Close Call"]
+          # each type must sit next to its name
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: >-
+                  type = case initcap(name)
+                      when 'Sales Call 1' then 'meeting'
+                      when 'Sales Call 2' then 'sc_2'
+                      when 'Follow Up Call' then 'follow_up'
+                      when 'After Close Call' then 'after_close_call'
+                  end
         columns:
           - name: id
             data_type: integer
@@ -128,31 +172,36 @@ sources:
             data_tests:
               - unique
               - not_null
+              - accepted_values:
+                  arguments:
+                    values: ["meeting", "sc_2", "follow_up", "after_close_call"]
 
       - name: deal_changes
         description: >
           Change log of deal fields: each row records that a deal field (`changed_field_key`) was set to
-          `new_value` at `change_time`. This is the only source of deal history. The source has no deals
-          table, so deal creation (`add_time`), stage moves (`stage_id`), owner changes (`user_id`) and lost
-          reasons (`lost_reason`) all come from this table.
+          `new_value` at `change_time`. The source has no deals table, so deal creation (`add_time`), stage
+          moves (`stage_id`), owner changes (`user_id`) and lost reasons (`lost_reason`) all come from this
+          table.
 
 
           **Grain**: one row per deal, change time and changed field (`deal_id`, `change_time`,
-          `changed_field_key`). The combination is unique, but no key is declared.
+          `changed_field_key`). `init.sql` declares no key; a test checks that the combination is unique.
 
 
-          **Load / test scope**: static load from `raw_data/deal_changes.csv`. Contract tests cover the full table.
+          **Load / test scope**: static load from `raw_data/deal_changes.csv`. Contract tests cover the full
+          table.
 
 
-          **Known data-quality findings** (profiled 2026-10-15, 15,406 rows, 1,995 deals):
-
-
-          - 5 deals have two `add_time` rows at different times.
-
-          - Row counts by `changed_field_key`: `stage_id` 8,906, `user_id` 2,500, `add_time` 2,000,
-            `lost_reason` 2,000.
-
-          - `change_time` ranges from 2024-01-01 to 2025-03-11.
+          **Freshness**: none expected today, because the data is a static load. For a live feed the
+          check is ready on `change_time`: warning when the latest change is more than 1 day old, error
+          after 2 days. `change_time` is when a deal field changed, so it moves forward whenever deals
+          are worked. On the static data the check reports error, as expected.
+        config:
+          tags: ["pipedrive"]
+          loaded_at_field: change_time
+          freshness:
+            warn_after: {count: 1, period: day}
+            error_after: {count: 2, period: day}
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
@@ -207,15 +256,25 @@ sources:
           allowed options.
 
 
-          **Grain**: one row per deal field (`id`, declared primary key). `field_key` is also unique and is the
-          key that `deal_changes.changed_field_key` references.
+          **Grain**: one row per deal field (`id`). `init.sql` declares `id` as the key. `field_key` is also
+          unique, and it is the column that `deal_changes.changed_field_key` points to.
 
 
-          **Load / test scope**: static load from `raw_data/fields.csv` (4 rows). Contract tests cover the full table.
+          **Load / test scope**: static load from `raw_data/fields.csv`. Contract tests cover the full
+          table.
 
 
-          **Known data-quality findings**: the `stage_id` options label stage 2 "Qualified Lead", while
-          `stages.stage_name` says "Qualified lead" (only the capital L differs).
+          **Freshness**: none today. The table has no load timestamp, and the data is a static load. Once
+          the loader adds `_loaded_at`, a freshness check on it is added with thresholds that follow the
+          load schedule: daily load → warning after 1 day, error after 2 days; hourly load → warning
+          after 1 hour, error after 2 hours.
+        config:
+          tags: ["pipedrive"]
+          # TODO: once `_loaded_at` exists (declare the column too), uncomment and pick the load schedule:
+          # loaded_at_field: _loaded_at
+          # freshness:
+          #   warn_after: {count: 1, period: day}    # hourly load: {count: 1, period: hour}
+          #   error_after: {count: 2, period: day}   # hourly load: {count: 2, period: hour}
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
@@ -248,10 +307,24 @@ sources:
           Lookup of the sales pipeline stages, in funnel order.
 
 
-          **Grain**: one row per pipeline stage (`stage_id`, declared primary key).
+          **Grain**: one row per pipeline stage (`stage_id`). `init.sql` declares `stage_id` as the key.
 
 
-          **Load / test scope**: static load from `raw_data/stages.csv` (9 rows). Contract tests cover the full table.
+          **Load / test scope**: static load from `raw_data/stages.csv`. Contract tests cover the full
+          table.
+
+
+          **Freshness**: none today. The table has no load timestamp, and the data is a static load. Once
+          the loader adds `_loaded_at`, a freshness check on it is added with thresholds that follow the
+          load schedule: daily load → warning after 1 day, error after 2 days; hourly load → warning
+          after 1 hour, error after 2 hours.
+        config:
+          tags: ["pipedrive"]
+          # TODO: once `_loaded_at` exists (declare the column too), uncomment and pick the load schedule:
+          # loaded_at_field: _loaded_at
+          # freshness:
+          #   warn_after: {count: 1, period: day}    # hourly load: {count: 1, period: hour}
+          #   error_after: {count: 2, period: day}   # hourly load: {count: 2, period: hour}
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
@@ -276,14 +349,24 @@ sources:
           Pipedrive users (sales reps) who own deals and are assigned activities.
 
 
-          **Grain**: one row per user (`id`, declared primary key).
+          **Grain**: one row per user (`id`). `init.sql` declares `id` as the key.
 
 
-          **Load / test scope**: static load from `raw_data/users.csv`. Contract tests cover the full table.
+          **Load / test scope**: static load from `raw_data/users.csv`. Contract tests cover the full
+          table.
 
 
-          **Known data-quality findings** (profiled 2026-10-15, 1,787 rows): 4 duplicate `email` values and
-          21 duplicate `name` values, so neither column identifies a user.
+          **Freshness**: none today. The table has no load timestamp, and the data is a static load. Once
+          the loader adds `_loaded_at`, a freshness check on it is added with thresholds that follow the
+          load schedule: daily load → warning after 1 day, error after 2 days; hourly load → warning
+          after 1 hour, error after 2 hours.
+        config:
+          tags: ["pipedrive"]
+          # TODO: once `_loaded_at` exists (declare the column too), uncomment and pick the load schedule:
+          # loaded_at_field: _loaded_at
+          # freshness:
+          #   warn_after: {count: 1, period: day}    # hourly load: {count: 1, period: hour}
+          #   error_after: {count: 2, period: day}   # hourly load: {count: 2, period: hour}
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
