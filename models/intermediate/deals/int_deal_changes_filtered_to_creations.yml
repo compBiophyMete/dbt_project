@@ -1,0 +1,74 @@
+version: 2
+
+models:
+  - name: int_deal_changes_filtered_to_creations
+    description: >
+      Creation events of Pipedrive deals. The source has no deals table, so this is the only record
+      of when a deal started. Feeds `int_deals` (creation date, `has_multiple_creations`) and any
+      KPI by creation month.
+
+
+      **Grain**: one row per deal and creation record (`deal_id`, `changed_at`). **Join on both**:
+      a deal created twice has two rows. The grain uses the raw `changed_at`, not the derived
+      `created_at`, which could be null.
+
+
+      **Transformations and business logic**:
+
+      - Keeps the `add_time` rows of `stg_pipedrive__deal_changes`; `new_value_timestamp` becomes `created_at`.
+
+      - Per-deal attributes (`has_multiple_creations`) are computed in `int_deals`, never here: a later run can append a deal's second creation.
+
+      - Incremental `append`: a `not exists` on (`deal_id`, `changed_at`) skips rows already loaded, and a unique index rejects any duplicate.
+
+      - `dwh_date`: start of the dbt run that appended the row.
+
+      - Deletes: a `post_hook` (`delete_rows_missing_upstream`) removes creations no longer upstream.
+
+
+      **Edge cases**:
+
+      - Some deal IDs have two creations weeks apart, most likely two deals sharing one ID. Both rows are kept; `int_deals` flags them. Evidence: `analyses/profile_shared_deal_ids_timeline.sql`.
+
+      - A creation date edited in Pipedrive shows a time of 12:00 AM ([Pipedrive KB](https://support.pipedrive.com/en/article/how-can-i-edit-the-deal-created-date)), so a second creation at midnight is likely an edit, not a new deal; the warning test `assert_no_edited_creation_dates` flags it.
+
+      - A creation older than the lookback window is missed until a wider `lookback_days` or a `--full-refresh`.
+
+      - `on_schema_change: fail`: an upstream column change fails the run until a `--full-refresh`.
+
+
+      **Refresh**: daily, incremental on `changed_at` with a lookback of 2 days, 8 on Mondays
+      (UTC). The source is a static load today, so no freshness check.
+    config:
+      materialized: incremental
+      incremental_strategy: append
+      on_schema_change: fail
+      indexes:
+        # changed_at first: serves the max(changed_at) watermark and the dedup anti-join; rejects duplicates
+        - columns: ["changed_at", "deal_id"]
+          unique: true
+      tags:
+        - pipedrive
+        - daily
+        - incremental
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain; reports a duplicate the dedup missed
+          arguments:
+            combination_of_columns: ["deal_id", "changed_at"]
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - not_null   # part of the grain
+      - name: created_at
+        description: "{{ doc('int_deal_changes_filtered_to_creations__created_at') }}"
+        data_tests:
+          - not_null   # derived from new_value: catches an add_time value that failed its format check
+      - name: changed_at
+        description: "{{ doc('deal_changes__change_time') }}"
+        data_tests:
+          - not_null   # part of the grain and the watermark column
+      - name: dwh_date
+        description: "{{ doc('dwh_date') }}"
+        data_tests:
+          - not_null

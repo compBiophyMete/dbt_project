@@ -1,0 +1,29 @@
+version: 2
+
+macros:
+  - name: delete_rows_missing_upstream
+    description: >
+      Renders the delete `post_hook` of an incremental model, so rows removed upstream (e.g. a deal
+      deleted or merged in Pipedrive) are removed here too: an `append` or `merge` load never deletes.
+      Deletes every row of the model's own table whose `key_columns` have no match in `upstream` (restricted by
+      `upstream_filter`), but only while `upstream` still has rows for that filter: if a failed or
+      unfinished raw reload leaves it empty, nothing is deleted instead of the whole table. It compares
+      the whole table, not only the incremental window, so its cost grows with the table. Match on raw
+      key columns only: a derived column that can be null would never match and its rows would be
+      deleted. Call it from the model's `config()` as the `post_hook` string, with the upstream `ref`,
+      the key columns and the filter; see `int_deal_changes_filtered_to_stages.sql` for an example.
+    arguments:
+      - name: upstream
+        type: relation
+        description: The model the rows come from, e.g. `ref('stg_pipedrive__deal_changes')`.
+      - name: key_columns
+        type: list
+        description: >
+          Raw columns that identify a row in both the model and `upstream`, e.g.
+          `['deal_id', 'changed_at']`.
+      - name: upstream_filter
+        type: string
+        description: >
+          SQL predicate on `upstream` limiting it to the rows this model loads, e.g.
+          `"changed_field_key = 'stage_id'"`, so another key's rows can't keep a deleted row alive.
+          Default `1 = 1` (all rows).

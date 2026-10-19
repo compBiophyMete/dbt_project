@@ -1,0 +1,47 @@
+version: 2
+
+macros:
+  - name: lookback_days
+    description: >
+      Number of days an incremental model re-reads on this run (integer). In order of precedence:
+      the `lookback_days` var (`--vars '{lookback_days: N}'`, for one-off backfills; it applies to
+      every model in the run); `weekly_days` when the run starts on `weekly_weekday` (UTC, from
+      `run_started_at`), so a weekly run re-checks a wider window; otherwise `default_days`.
+    arguments:
+      - name: default_days
+        type: integer
+        description: Window on a normal run, e.g. 2.
+      - name: weekly_days
+        type: integer
+        description: Wider window on the weekly re-check day, e.g. 8. Omit it for no weekly widening.
+      - name: weekly_weekday
+        type: integer
+        description: Day of the weekly re-check, Python weekday numbering (0 = Monday … 6 = Sunday). Default 0.
+
+  - name: incremental_lookback_filter
+    description: >
+      Renders the lookback predicate of an incremental model:
+      `<column> >= (select coalesce(max(<column>), '-infinity') from <this model's table>) - interval '<N> days'`,
+      with N from `lookback_days()`. The same column is filtered in the input and read as the
+      watermark from the model's own table, so both sides compare the same clock; the model must
+      keep that column in its output. The `coalesce` makes an empty table load everything instead
+      of nothing. Use it inside the model's own `is_incremental()` block. A lookback re-reads rows
+      that are already loaded, so the model must deduplicate them: `merge` / `delete+insert` on a
+      `unique_key`, or an `append` with a `not exists` anti-join on the grain. For performance, use
+      a raw column (e.g. `changed_at`, not a computed one) and filter in the import CTE, so the
+      predicate is pushed through the staging view to the source.
+    arguments:
+      - name: column
+        type: string
+        description: >
+          Timestamp column filtered in the model's input and read as the watermark from the model's
+          own table (so it must exist in both), e.g. `changed_at`.
+      - name: default_days
+        type: integer
+        description: Passed to `lookback_days()`.
+      - name: weekly_days
+        type: integer
+        description: Passed to `lookback_days()`; omit for no weekly widening.
+      - name: weekly_weekday
+        type: integer
+        description: Passed to `lookback_days()`; default 0 (Monday).
