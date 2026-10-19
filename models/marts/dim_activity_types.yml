@@ -1,0 +1,48 @@
+version: 2
+
+models:
+  - name: dim_activity_types
+    description: >
+      The types of activities logged in Pipedrive (sales calls and follow-ups). Conformed dimension:
+      `fct_activities` joins here to filter, group or label by type.
+
+
+      **Grain**: one row per activity type (`activity_type_id`). **Join on `activity_type_id`.** The
+      text key `activity_type` (e.g. `meeting`) is unique too.
+
+
+      **Transformations and business logic**: `stg_pipedrive__activity_types` unchanged, cast to the
+      contract types. Type 1: current state only. `is_activity_type_active` describes the type, not
+      an activity: never use it to filter activities.
+
+
+      **Edge cases**: `follow_up` is inactive, yet done activities still use it.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    columns:
+      - name: activity_type_id
+        description: "{{ doc('activity_types__id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # the grain
+        data_tests:
+          - unique
+      - name: activity_type
+        description: "{{ doc('activity_type') }}"
+        data_type: character varying(50)
+        constraints:
+          - type: not_null
+        data_tests:
+          - unique   # natural key; dim_funnel_steps maps call steps on it
+      - name: activity_type_name
+        description: "{{ doc('activity_types__name') }}"
+        data_type: character varying(255)
+      - name: is_activity_type_active
+        description: "{{ doc('stg_pipedrive__activity_types__is_activity_type_active') }}"
+        data_type: boolean
