@@ -1,0 +1,25 @@
+version: 2
+
+# Consumers of the marts. Both reports are consumed as analyses today; when a BI dashboard is
+# built on one of them, change `type` to `dashboard` and add its `url`.
+
+exposures:
+  - name: sales_funnel_monthly
+    label: Sales Funnel – Monthly
+    type: analysis
+    maturity: medium
+    owner:
+      name: Metehan Ilter
+    depends_on:
+      - ref('rep_sales_funnel_monthly')
+    description: >
+      **Purpose**: how many Pipedrive deals reach each step of the sales funnel per month, the
+      report of the brief, so the sales team can follow pipeline volume month by month.
+
+
+      **Data contract**: mart `rep_sales_funnel_monthly`, one row per month per funnel step (KPI).
+      A month is not a cohort, and call steps are a separate population (see the mart).
+
+
+      **Refresh**: rebuilt daily on every `dbt run`. The source is a static load today, so the
+      numbers only change when the data is reloaded.
