@@ -149,7 +149,7 @@ Example (this project's static Pipedrive load — full-table scope, no `where` f
 version: 2
 
 sources:
-  - name: postgres_public
+  - name: pipedrive
     database: postgres
     schema: public
     description: Raw Pipedrive CRM tables loaded once from CSV via init.sql.
@@ -229,14 +229,14 @@ sources:
             data_tests:
               - relationships:
                   arguments:
-                    to: source('postgres_public', 'activity_types')
+                    to: source('pipedrive', 'activity_types')
                     field: type
           - name: assigned_to_user
             data_type: integer
             data_tests:
               - relationships:
                   arguments:
-                    to: source('postgres_public', 'users')
+                    to: source('pipedrive', 'users')
                     field: id
           - name: deal_id
             data_type: integer

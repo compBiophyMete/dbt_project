@@ -93,7 +93,7 @@ Model the Pipedrive CRM data into **reusable dbt layers** (sources → staging �
 Every model below is built, documented and tested.
 
 ### Sources
-`models/staging/pipedrive/_pipedrive__sources.yml`: source `postgres_public`, 6 tables, every column with `data_type`, Elementary `schema_changes_from_baseline`, key and value contract tests on the full table (static load), freshness as in §3.
+`models/staging/pipedrive/_pipedrive__sources.yml`: source `pipedrive`, 6 tables, every column with `data_type`, Elementary `schema_changes_from_baseline`, key and value contract tests on the full table (static load), freshness as in §3.
 
 ### Staging (`stg_pipedrive` schema, views)
 | Model | Grain | Notes |

@@ -138,7 +138,7 @@ columns:
             values: ["call", "meeting", "follow_up"]   # illustrative — use the profiled values
       - relationships:
           arguments:
-            to: source('postgres_public', 'activity_types')
+            to: source('pipedrive', 'activity_types')
             field: type
           config:
             severity: warn   # explained in the staging model's Edge cases, not in the source
@@ -154,7 +154,7 @@ models/staging/<system>/
   _<system>__docs.md       # doc blocks for the columns only
 ```
 
-For this project `<system>` is `pipedrive` and the source keeps its existing name `postgres_public` (database `postgres`, schema `public`) so current `source('postgres_public', ...)` refs keep working. If a source file already exists elsewhere (e.g. `models/sources.yml`), propose moving it with `git mv` into the conventional location and merging, rather than leaving two definitions. Ask before moving.
+For this project `<system>` is `pipedrive`, and the source is named after the system too: `pipedrive` (database `{{ target.database }}` so CI can build in a per-PR clone database, schema `public`), referenced as `source('pipedrive', ...)`. The source name must match its staging folder; dbt-project-evaluator checks this in CI. If a source file already exists elsewhere (e.g. `models/sources.yml`), propose moving it with `git mv` into the conventional location and merging, rather than leaving two definitions. Ask before moving.
 
 **`_<system>__sources.yml`**
 

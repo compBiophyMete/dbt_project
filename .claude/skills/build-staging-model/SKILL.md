@@ -152,8 +152,8 @@ with
 source as (
 
     select
-        {{ dbt_utils.star(from=source('postgres_public', 'activity')) }}
-    from {{ source('postgres_public', 'activity') }}
+        {{ dbt_utils.star(from=source('pipedrive', 'activity')) }}
+    from {{ source('pipedrive', 'activity') }}
 
 ),
 
