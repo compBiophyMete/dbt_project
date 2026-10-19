@@ -1,0 +1,3 @@
+# dbt versions the project is built and tested with (local and CI).
+dbt-core==1.10.23
+dbt-postgres==1.9.1
