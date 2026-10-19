@@ -8,22 +8,6 @@ Whether the deal ID has more than one creation (`add_time`) row in the deal chan
 Number of creation (`add_time`) rows the deal has in the deal change log (integer, ≥ 0).
 {% enddocs %}
 
-{% docs int_deal_stage_changes_windowed_to_visits__exited_at %}
-When the deal left the stage (`timestamp without time zone`, in UTC): its next stage change or
-its first loss after entering the stage, whichever came first. Null while the deal is still in
-the stage.
-{% enddocs %}
-
-{% docs int_deal_stage_changes_windowed_to_visits__exit_type %}
-How the deal left the stage: `'next_stage'` or `'lost'`. Null while the deal is still in the
-stage.
-{% enddocs %}
-
-{% docs int_deal_stage_changes_windowed_to_visits__days_in_stage %}
-Calendar days the deal spent in the stage on this visit (integer, ≥ 0): `exited_at` date minus
-entry date. Null while the deal is still in the stage.
-{% enddocs %}
-
 {% docs stage_id_at_loss %}
 Pipeline stage the deal was in when it was lost (integer, 1–9): the `stage_id` of the deal's
 latest stage change at or before the loss's `changed_at`.
