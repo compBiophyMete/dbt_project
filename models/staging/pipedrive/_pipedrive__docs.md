@@ -4,10 +4,6 @@
 Pipedrive deal identifier (integer).
 {% enddocs %}
 
-{% docs user_id %}
-Pipedrive user identifier (integer).
-{% enddocs %}
-
 {% docs stage_id %}
 Pipeline stage identifier (integer, 1–9).
 {% enddocs %}
