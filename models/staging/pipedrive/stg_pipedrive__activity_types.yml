@@ -15,7 +15,9 @@ models:
       other value stays null and fails `not_null`).
 
 
-      **Edge cases**: `follow_up` is inactive.
+      **Edge cases**: `follow_up` (Follow Up Call) is marked inactive, yet activities still use it,
+      including done ones. So never filter activities on `is_activity_type_active`. Evidence:
+      `analyses/profile_activity_done_and_types.sql`.
 
 
       **Refresh**: view, always current with the source. Freshness is checked on the source

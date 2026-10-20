@@ -18,7 +18,7 @@ models:
 
       - `field_value_options` is null for fields that are not picklists: "no options", not missing. Evidence: `analyses/profile_field_value_options.sql`.
 
-      - `field_name` is re-cased, so join on `field_key`, not on the name.
+      - `field_name` no longer matches the raw name exactly: it is trimmed and every word capitalized (e.g. "Deal created" → "Deal Created"). A field name from another table matches only after the same treatment. Join on `field_key`, never on `field_name`.
 
 
       **Refresh**: view, always current with the source. Freshness is checked on the source

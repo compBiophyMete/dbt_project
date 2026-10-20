@@ -8,7 +8,7 @@ models:
 
 
       **Grain**: one row per activity and deal (`activity_id`, `deal_id`). **Join on both, never on
-      `activity_id` alone**: some IDs are reused on a second deal.
+      `activity_id` alone.**
 
 
       **Transformations**: `assigned_to_user` → `assigned_user_id`, `type` → `activity_type`

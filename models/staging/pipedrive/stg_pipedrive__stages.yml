@@ -13,7 +13,9 @@ models:
       lead" → "Qualified Lead").
 
 
-      **Edge cases**: `stage_name` is re-cased, so join on `stage_id`, not on the name.
+      **Edge cases**: `stage_name` no longer matches the raw name exactly: it is trimmed and every word
+      capitalized (e.g. "Qualified lead" → "Qualified Lead"). A stage name from another table matches
+      only after the same treatment. Join on `stage_id`, never on `stage_name`.
 
 
       **Refresh**: view, always current with the source. Freshness is checked on the source
