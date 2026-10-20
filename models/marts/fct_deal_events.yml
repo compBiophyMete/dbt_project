@@ -19,7 +19,7 @@ models:
 
       - `stage_changed` from `fct_deal_stage_changes`, with `stage_name`;
 
-      - `owner_changed` from `int_deal_changes_filtered_to_owners`, with `owner_name` from `int_users`;
+      - `owner_changed` from `int_deal_changes_filtered_to_owners`, with `owner_name` from `dim_users`;
 
       - `lost` from `fct_deal_losses`, with `lost_reason_name`.
 

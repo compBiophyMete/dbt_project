@@ -13,16 +13,14 @@ losses as (
 
 ),
 
--- the lost-reason picklist: option_id is unique per field_key, so one row per reason
+-- names from the conformed dimensions, so every mart shows the same name for a key
 lost_reasons as (
 
     select
-        option_id                               as lost_reason_id,
-        option_label                            as lost_reason_name
+        lost_reason_id,
+        lost_reason_name
     from
-        {{ ref('int_fields_unnested_to_options') }}
-    where
-        field_key = 'lost_reason'
+        {{ ref('dim_lost_reasons') }}
 
 ),
 
@@ -32,11 +30,11 @@ stages as (
         stage_id,
         stage_name
     from
-        {{ ref('stg_pipedrive__stages') }}
+        {{ ref('dim_stages') }}
 
 ),
 
--- labels are joined here, at build time, so every row shows the current label and stage name;
+-- names are joined here, at build time, so every row shows the current lost-reason and stage name;
 -- the append tables upstream store only the IDs. Both lookups are unique on their key (n:1), so
 -- the joins never change the row count
 enriched as (

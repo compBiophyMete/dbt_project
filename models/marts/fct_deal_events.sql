@@ -52,11 +52,11 @@ users as (
         user_id,
         user_name
     from
-        {{ ref('int_users') }}
+        {{ ref('dim_users') }}
 
 ),
 
--- the owner's current name, joined at build time. user_id is unique in int_users (n:1), so the
+-- the owner's current name, joined at build time. user_id is unique in dim_users (n:1), so the
 -- join never changes the row count
 owner_changes_named as (
 

@@ -18,7 +18,7 @@ stages as (
         stage_id,
         stage_name
     from
-        {{ ref('stg_pipedrive__stages') }}
+        {{ ref('dim_stages') }}
 
 ),
 

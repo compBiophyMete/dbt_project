@@ -13,9 +13,9 @@ models:
 
 
       **Transformations and business logic**: `int_deal_losses_joined_to_stages` (stage at loss
-      applied there), plus current names via `left join`s (n:1): `lost_reason_name` from the
-      `lost_reason` options of `int_fields_unnested_to_options`, `stage_name_at_loss` from
-      `stg_pipedrive__stages`. Names are joined here, at build time, because the upstream tables only
+      applied there), plus current names via `left join`s (n:1): `lost_reason_name` from
+      `dim_lost_reasons`, `stage_name_at_loss` from `dim_stages`, so every mart shows the same name
+      for a key. Names are joined here, at build time, because the upstream tables only
       append.
 
 
@@ -59,7 +59,7 @@ models:
         description: "{{ doc('lost_reason_name') }}"
         data_type: character varying(255)
         data_tests:
-          - not_null   # proves the left join to the option lookup matched every row
+          - not_null   # proves the left join to dim_lost_reasons matched every row
       - name: stage_id_at_loss
         description: "{{ doc('fct_deal_losses__stage_id_at_loss') }}"
         data_type: integer
@@ -73,7 +73,7 @@ models:
         description: "{{ doc('stage_name_at_loss') }}"
         data_type: character varying(255)
         data_tests:
-          - not_null   # proves the left join to stg_pipedrive__stages matched every row
+          - not_null   # proves the left join to dim_stages matched every row
       - name: lost_at
         description: "{{ doc('int_deal_changes_filtered_to_losses__changed_at') }}"
         data_type: timestamp without time zone

@@ -12,7 +12,7 @@ models:
 
 
       **Transformations and business logic**: `int_deal_changes_filtered_to_stages` unchanged, plus
-      the current `stage_name` from `stg_pipedrive__stages` (`left join`, n:1), joined at build time
+      the current `stage_name` from `dim_stages` (`left join`, n:1), joined at build time
       because the upstream table only appends.
 
 
@@ -58,7 +58,7 @@ models:
         description: "{{ doc('stages__stage_name') }}"
         data_type: character varying(255)
         data_tests:
-          - not_null   # proves the left join to stg_pipedrive__stages matched every row
+          - not_null   # proves the left join to dim_stages matched every row
       - name: changed_at
         description: "{{ doc('int_deal_changes_filtered_to_stages__changed_at') }}"
         data_type: timestamp without time zone
