@@ -209,7 +209,7 @@ Design rules:
 
 - Exactly the columns `month`, `kpi_name`, `funnel_step`, `deals_count`, in that order.
 - `contract: enforced: true`: `month date`, `kpi_name character varying(100)`, `funnel_step character varying(10)`, `deals_count integer`, each `not_null`.
-- Tests: grain `unique_combination_of_columns` on (`month`, `funnel_step`); `accepted_values` on `funnel_step` and `kpi_name`; `deals_count >= 0`; singular tests `assert_rep_sales_funnel_monthly_complete_grid` and `assert_rep_sales_funnel_monthly_reconciles`.
+- Tests: grain `unique_combination_of_columns` on (`month`, `funnel_step`); `accepted_values` on `funnel_step` and `kpi_name`; `deals_count >= 0`; singular test `assert_rep_sales_funnel_monthly_reconciles`. No grid-completeness test: every month × step is guaranteed by construction (`generate_series` × `cross join`); a change to how the spine is built must keep that guarantee.
 
 ## 10. Done when
 
