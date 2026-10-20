@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: int_deal_stage_changes_aggregated_to_entries
+    description: >
+      When each Pipedrive deal first entered each pipeline stage. Feeds every stage-entry KPI:
+      funnel steps 1–9 of `rep_sales_funnel_monthly`, stage conversion rates and time to reach a
+      stage.
+
+
+      **Grain**: one row per deal and stage entered (`deal_id`, `stage_id`). **Join on both.**
+
+
+      **Transformations and business logic**: `int_deal_changes_filtered_to_stages` grouped by
+      deal and stage, no joins.
+
+      - A deal that jumps from stage 1 to 3 gets no row for stage 2.
+      - `entered_at` is the earliest `changed_at` per deal and stage, so a re-entered stage counts once.
+
+      - Table, not incremental: a late stage change older than the stored one would lower `entered_at`.
+
+
+      **Edge cases**:
+
+      - Deals are expected to enter stage 1 first; the warning test `assert_deals_start_at_stage_1` flags exceptions.
+
+      - Deal IDs with two creations are the only deals that re-enter a stage; they keep the first entry across both lifecycles.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (deal_id, stage_id); proves every re-entry was collapsed
+          arguments:
+            combination_of_columns: ["deal_id", "stage_id"]
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - not_null   # part of the grain
+      - name: stage_id
+        description: "{{ doc('stage_id') }}"
+        data_tests:
+          - not_null   # part of the grain; its match to stg_pipedrive__stages is tested upstream
+      - name: entered_at
+        description: "{{ doc('int_deal_stage_changes_aggregated_to_entries__entered_at') }}"
+        data_tests:
+          - not_null

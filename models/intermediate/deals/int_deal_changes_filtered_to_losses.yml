@@ -1,0 +1,75 @@
+version: 2
+
+models:
+  - name: int_deal_changes_filtered_to_losses
+    description: >
+      Loss events of Pipedrive deals: a deal marked lost, with a reason, at a point in time.
+
+
+      **Grain**: one row per deal and loss (`deal_id`, `changed_at`). **Join on both**
+
+
+      **Transformations and business logic**:
+
+      - Keeps the `lost_reason` rows of `stg_pipedrive__deal_changes`; `new_value_integer` becomes `lost_reason_id`.
+
+      - Event history, not the loss status: an edited reason or a deal lost again adds a new row.
+
+      - No label column: appended rows are never rewritten, so a stored label would go stale on a rename. Join it downstream from the `lost_reason` options of `int_fields_unnested_to_options` (`lost_reason_id` = `option_id`).
+
+      - Incremental `append`: a `not exists` on (`deal_id`, `changed_at`) skips rows already loaded, and a unique index rejects any duplicate.
+
+      - `dwh_date`: start of the dbt run that appended the row.
+
+      - Deletes: a `post_hook` (`delete_rows_missing_upstream`) removes losses no longer upstream, e.g. of a deal deleted or merged in Pipedrive.
+
+
+      **Edge cases**:
+
+      - Deal IDs with two creations have one loss per lifecycle. All rows are kept; `int_deals` flags them. Evidence: `analyses/profile_shared_deal_ids_timeline.sql`.
+
+      - A loss older than the lookback window is missed until a wider `lookback_days` or a `--full-refresh`.
+
+      - `on_schema_change: fail`: an upstream column change fails the run until a `--full-refresh`.
+
+
+      **Refresh**: daily, incremental on `changed_at` with a lookback of 2 days, 8 on Mondays
+      (UTC). The source is a static load today, so no freshness check.
+    config:
+      materialized: incremental
+      incremental_strategy: append
+      on_schema_change: fail
+      indexes:
+        # changed_at first: serves the max(changed_at) watermark and the dedup anti-join; rejects duplicates
+        - columns: ["changed_at", "deal_id"]
+          unique: true
+      tags:
+        - pipedrive
+        - daily
+        - incremental
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain; reports a duplicate the dedup missed
+          arguments:
+            combination_of_columns: ["deal_id", "changed_at"]
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - not_null   # part of the grain
+      - name: lost_reason_id
+        description: "{{ doc('int_deal_changes_filtered_to_losses__lost_reason_id') }}"
+        data_tests:
+          - not_null   # given its meaning here; also catches a lost_reason value that failed its format check
+          - dbt_utils.relationships_where:   # every reason must have a label in the option lookup
+              arguments:
+                to: ref('int_fields_unnested_to_options')
+                field: option_id
+                to_condition: "field_key = 'lost_reason'"
+      - name: changed_at
+        description: "{{ doc('int_deal_changes_filtered_to_losses__changed_at') }}"
+        data_tests:
+          - not_null   # part of the grain and the watermark column
+      - name: dwh_date
+        description: "{{ doc('dwh_date') }}"
+        data_tests:
+          - not_null

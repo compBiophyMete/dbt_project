@@ -1,0 +1,91 @@
+version: 2
+
+models:
+  - name: rep_sales_funnel_monthly
+    description: >
+      Monthly sales funnel: how many deals reached each funnel step, per month. The report of the
+      brief, with exactly its columns `month`, `kpi_name`, `funnel_step`, `deals_count`.
+
+
+      **Grain**: one row per month and funnel step (`month`, `funnel_step`): every month of the data
+      period × every step.
+
+
+      **Transformations and business logic**:
+
+      - Grid: every month from the smallest to the largest date in `fct_deal_events` and `fct_activities`, generated in this model rather than taken from a shared calendar dimension, × steps from `dim_funnel_steps`, so an empty step shows 0.
+
+      - Why the month range reads `fct_deal_events` and `fct_activities`, not only `fct_deal_funnel_steps`: the report covers the whole period of the data, every month with any deal change (creation, stage change, owner change or loss) or done activity. A month at the edge of the data with only losses or owner changes still appears, with 0 in every step, instead of disappearing. The cost is lineage: the report depends on the loss and owner models only for this range.
+
+      - `deals_count`: deals that reached the step in that month (rows of `fct_deal_funnel_steps`). A deal counts once per step; additive across months.
+
+      - Funnel rules come from `int_deal_funnel_steps_unioned`: cumulative stage steps, done calls dated by `due_at`, shared deal IDs excluded; losses don't remove a deal from a step.
+
+      - Assumption: call steps count every deal with a done call, including deals whose `deal_id` appears only on activities, not in the deal change log. Pipedrive activities belong to real deals, but this export barely links activity deal IDs to the change log, so the gap is treated as an export limitation, not as activities without a deal. Counting only linked deals would leave steps 2.1 and 3.1 almost empty. The gap stays visible through the failing `relationships` tests on the activities' `deal_id` and the `has_known_deal` flag; if a fuller export links the IDs, the same rule yields a single, consistent funnel population.
+
+
+      **Edge cases**:
+
+      - Call steps are a separate population: 2.1 and 3.1 are not shares of steps 2 and 3. Evidence: `analyses/profile_activity_deal_linkage.sql`.
+
+      - A month is not a cohort: within a month a later step can exceed an earlier one, so a month's counts are not conversion rates.
+
+      - Steps can be 0 in the first or last months, and the last month can be partial; the report has no partial-month flag.
+
+      - Lead Generation is dated by stage 1 entry, weeks after creation. Evidence: `analyses/profile_creations_vs_lead_generation_by_month.sql`.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (month, funnel_step)
+          arguments:
+            combination_of_columns: ["month", "funnel_step"]
+    columns:
+      - name: month
+        description: "{{ doc('rep_sales_funnel_monthly__month') }}"
+        data_type: date
+        constraints:
+          - type: not_null
+      - name: kpi_name
+        description: "{{ doc('kpi_name') }}"
+        data_type: character varying(100)
+        constraints:
+          - type: not_null
+        data_tests:
+          - accepted_values:   # the 11 step names of the brief
+              arguments:
+                values:
+                  - "Lead Generation"
+                  - "Qualified Lead"
+                  - "Sales Call 1"
+                  - "Needs Assessment"
+                  - "Sales Call 2"
+                  - "Proposal/Quote Preparation"
+                  - "Negotiation"
+                  - "Closing"
+                  - "Implementation/Onboarding"
+                  - "Follow-up/Customer Success"
+                  - "Renewal/Expansion"
+      - name: funnel_step
+        description: "{{ doc('funnel_step') }}"
+        data_type: character varying(10)
+        constraints:
+          - type: not_null
+        data_tests:
+          - accepted_values:   # the 11 steps of the brief
+              arguments:
+                values: ["1", "2", "2.1", "3", "3.1", "4", "5", "6", "7", "8", "9"]
+      - name: deals_count
+        description: "{{ doc('rep_sales_funnel_monthly__deals_count') }}"
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0

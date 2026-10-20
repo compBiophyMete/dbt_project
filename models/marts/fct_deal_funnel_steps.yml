@@ -1,0 +1,57 @@
+version: 2
+
+models:
+  - name: fct_deal_funnel_steps
+    description: >
+      Which deals reached which step of the sales funnel, and when. The public funnel fact: deals per
+      step and period, time between steps. `rep_sales_funnel_monthly` counts it per month and step;
+      join `dim_funnel_steps` for step names.
+
+
+      **Grain**: one row per deal and funnel step reached (`deal_id`, `funnel_step`). **Join on
+      both.** Factless: count rows. `deal_id` has no tested link to a deal dimension, because call
+      steps hold deal IDs that exist only on activities.
+
+
+      **Transformations and business logic**: `int_deal_funnel_steps_unioned` unchanged, where the
+      funnel rules are applied (cumulative stage steps, done calls, shared deal IDs excluded).
+
+
+      **Edge cases**: call steps (2.1, 3.1) are a separate population, not subsets of the stage
+      steps; a skipped stage is dated by the first entry beyond it.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (deal_id, funnel_step)
+          arguments:
+            combination_of_columns: ["deal_id", "funnel_step"]
+      - dbt_utils.equal_rowcount:   # no row dropped or multiplied on the way to the mart
+          arguments:
+            compare_model: ref('int_deal_funnel_steps_unioned')
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # part of the grain
+      - name: funnel_step
+        description: "{{ doc('funnel_step') }}"
+        data_type: character varying(10)
+        constraints:
+          - type: not_null   # part of the grain
+        data_tests:
+          - relationships:   # every step is in the conformed funnel-step dimension
+              arguments:
+                to: ref('dim_funnel_steps')
+                field: funnel_step
+      - name: entered_at
+        description: "{{ doc('int_deal_funnel_steps_unioned__entered_at') }}"
+        data_type: timestamp without time zone
+        constraints:
+          - type: not_null   # every step reached has a time, needed for its month

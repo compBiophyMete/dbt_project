@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: dim_funnel_steps
+    description: >
+      The steps of the sales funnel. Conformed dimension: facts with a stage_id.
+
+      **Grain**: one row per funnel step (`funnel_step`). **Join on `funnel_step`.**
+
+
+      **Transformations and business logic**: `int_funnel_steps_mapped` unchanged (mapping and names
+      defined there), cast to the contract types. Each step is one stage or one activity type.
+      Sorting `funnel_step` as text gives the funnel order.
+
+
+      **Edge cases**: none known.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    columns:
+      - name: funnel_step
+        description: "{{ doc('funnel_step') }}"
+        data_type: character varying(10)
+        constraints:
+          - type: not_null   # the grain
+        data_tests:
+          - unique
+      - name: stage_id
+        description: "{{ doc('int_funnel_steps_mapped__stage_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:   # stage steps point at a stage in the conformed dimension
+              arguments:
+                to: ref('dim_stages')
+                field: stage_id
+      - name: activity_type
+        description: "{{ doc('int_funnel_steps_mapped__activity_type') }}"
+        data_type: character varying(50)
+        data_tests:
+          - relationships:   # call steps point at an activity type in the conformed dimension
+              arguments:
+                to: ref('dim_activity_types')
+                field: activity_type
+      - name: kpi_name
+        description: "{{ doc('kpi_name') }}"
+        data_type: character varying(100)
+        constraints:
+          - type: not_null

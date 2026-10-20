@@ -34,3 +34,89 @@ models:
     # Config indicated by + and applies to all files under models/example/
     +schema: pipedrive_analytics
     +materialized: table
+    # Project tag: every model belongs to the Pipedrive project (`dbt run --select tag:pipedrive`).
+
+    # Staging models are thin one-to-one cleanups of a source: always views,
+    # so they stay in sync with the raw tables and cost no storage.
+    staging:
+      +materialized: view
+      +docs:
+        node_color: "#2E8B57"     # green: marks staging nodes in the dbt docs lineage graph
+      # One block per source folder: schema stg_<folder>, models stg_<folder>__<entity>s.
+      pipedrive:
+        +schema: stg_pipedrive    # used as-is (macros/generate_schema_name.sql): stg_pipedrive.stg_pipedrive__<entity>s
+
+    # Intermediate models are internal building blocks (joins, business logic, re-graining):
+    # tables in their own schema, kept apart from the public marts.
+    intermediate:
+      +materialized: table
+      +tags: ["daily"]            # schedule tag: refreshed by the daily Airflow DAG (orchestration/airflow/dags)
+      +schema: int_pipedrive      # used as-is (macros/generate_schema_name.sql): int_pipedrive.int_<…>
+      +docs:
+        node_color: "#4682B4"     # blue: marks intermediate nodes in the dbt docs lineage graph
+
+    # Marts are the public layer (dims, facts, reports): tables, so dashboards read precomputed
+    # results instead of recomputing on every refresh. No mart is incremental: every mart joins its
+    # labels at build time (a rename must reach every row) and has rows that change after they are
+    # written (current deal attributes). Incremental loading
+    # lives upstream, in the immutable event models (int_deal_*) and int_users.
+    marts:
+      +materialized: table
+      +tags: ["daily"]            # schedule tag: refreshed by the daily Airflow DAG (orchestration/airflow/dags)
+      +schema: pipedrive_analytics  # used as-is (macros/generate_schema_name.sql): the public schema
+      +access: public             # consumer-facing: exposures and other projects may depend on marts
+      +docs:
+        node_color: "#D4A017"     # gold: marks mart nodes in the dbt docs lineage graph
+
+  # Elementary's own tables (run/test results) live in a separate schema:
+  # <target schema>_elementary
+  elementary:
+    +schema: elementary
+    +docs:
+      show: false   # keep Elementary's internal models out of the dbt docs site
+
+  # dbt-project-evaluator's models (the project's DAG and rule results) live in a separate schema:
+  # <target schema>_dbt_project_evaluator. Opt-in: off unless --vars '{run_evaluator: true}' is
+  # passed (CI does), so a plain `dbt run` / `dbt test` touches only this project.
+  dbt_project_evaluator:
+    +enabled: "{{ var('run_evaluator', false) }}"
+    +schema: dbt_project_evaluator
+    +docs:
+      show: false
+
+# Project tag on every source table of this project (`dbt source freshness --select tag:pipedrive`).
+sources:
+  enpal_assessment_project:
+    +tags: ["pipedrive"]
+
+# Documented exceptions to the dbt-project-evaluator rules (seeds/dbt_project_evaluator_exceptions.csv),
+# loaded next to the evaluator's models. The package's empty seed of the same name is disabled; the
+# package's seeds.yml documents its columns, so this project's seed has no YAML of its own (dbt allows
+# one description per resource). Each row's `comment` says why the exception is legitimate.
+seeds:
+  enpal_assessment_project:
+    dbt_project_evaluator_exceptions:
+      +schema: dbt_project_evaluator
+  dbt_project_evaluator:
+    dbt_project_evaluator_exceptions:
+      +enabled: false
+
+# dbt-project-evaluator's rule tests: opt-in like its models; they warn by default, and CI sets
+# DBT_PROJECT_EVALUATOR_SEVERITY=error so a best-practice violation fails the pull request.
+data_tests:
+  dbt_project_evaluator:
+    +enabled: "{{ var('run_evaluator', false) }}"
+    +severity: "{{ env_var('DBT_PROJECT_EVALUATOR_SEVERITY', 'warn') }}"
+
+vars:
+  dbt_project_evaluator:
+    # Evaluate this project only; package models (Elementary, dbt_utils) follow their own conventions.
+    exclude_packages: ["all"]
+    # rep_ is the reporting prefix the brief prescribes (rep_sales_funnel_monthly); reports live in marts.
+    marts_prefixes: ["fct_", "dim_", "rep_"]
+
+# Required by Elementary on dbt >= 1.8: lets its test materialization capture
+# failing-row samples, and runs its hooks on `dbt source freshness`.
+flags:
+  require_explicit_package_overrides_for_builtin_materializations: false
+  source_freshness_run_project_hooks: true

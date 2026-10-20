@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  - name: int_fields_unnested_to_options
+    description: >
+      Picklist options of the Pipedrive deal fields, so a coded value in the deal change log can be
+      joined to its label. Main use: lost-reason labels, which have no lookup table of their own.
+
+
+      **Grain**: one row per deal field and option (`field_key`, `option_id`). **Join on both**,
+      e.g. `changed_field_key = field_key and new_value_integer = option_id`; `option_id` alone
+      matches one option of every picklist field.
+
+
+      **Transformations and business logic**: `field_value_options` of `stg_pipedrive__fields`
+      unnested to one row per option, no joins.
+
+      - `option_id`: the option's `id`, trimmed and cast to integer to match `new_value_integer`.
+
+      - `option_label`: the option's `label`, trimmed, empty → null, cased with `capitalize_words` (as `stg_pipedrive__stages.stage_name`).
+
+
+      **Edge cases**:
+
+      - Fields without a picklist (`add_time`, `user_id`) produce no rows.
+
+      - A non-numeric option `id` fails the build at the cast; a missing one fails `not_null`.
+
+      - Stage options must hold the same (`stage_id`, name) pairs as `stg_pipedrive__stages`: a `relationships_where` test here and its mirror there check both directions. Stage labels downstream come from `stg_pipedrive__stages` only.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (field_key, option_id)
+          arguments:
+            combination_of_columns: ["field_key", "option_id"]
+      - dbt_utils.relationships_where:   # every (stage_id, name) pair of the stage picklist exists in the stage lookup
+          arguments:
+            column_name: "option_id || '|' || option_label"
+            to: ref('stg_pipedrive__stages')
+            field: "stage_id || '|' || stage_name"
+            from_condition: "field_key = 'stage_id'"
+    columns:
+      - name: field_key
+        description: "{{ doc('field_key') }}"
+        data_tests:
+          - not_null   # part of the grain
+          - accepted_values:   # every field key of stg_pipedrive__fields; a new one must be reviewed
+              arguments:
+                values: ["stage_id", "lost_reason", "add_time", "user_id" ]
+      - name: option_id
+        description: "{{ doc('int_fields_unnested_to_options__option_id') }}"
+        data_tests:
+          - not_null   # part of the grain; catches an option with no id in the JSON
+      - name: field_id
+        description: "{{ doc('fields__id') }}"
+      - name: field_name
+        description: "{{ doc('fields__name') }}"
+      - name: option_label
+        description: "{{ doc('int_fields_unnested_to_options__option_label') }}"
+        data_tests:
+          - not_null   # proves trim / nullif lost no labels

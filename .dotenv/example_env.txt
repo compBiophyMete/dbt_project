@@ -1,0 +1,8 @@
+DBT_HOST=*****
+DBT_PORT=*****
+DBT_USER=*****
+DBT_PASSWORD=*****
+DBT_DATABASE=*****
+DBT_THREADS=*****
+DBT_SCHEMA=*****
+DBT_TYPE=*****

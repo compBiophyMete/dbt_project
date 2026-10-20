@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: dim_stages
+    description: >
+      The pipeline stages of Pipedrive deals. Conformed dimension: facts with a stage key join here
+      on `stage_id`.
+
+
+      **Grain**: one row per stage (`stage_id`). **Join on `stage_id`.**
+
+
+      **Transformations and business logic**: `stg_pipedrive__stages` unchanged, cast to the contract
+      types. `stage_id` (1–9) follows funnel order, so it also sorts the stages. Type 1: current name
+      only. The funnel-step mapping lives in `int_funnel_steps_mapped`.
+
+
+      **Edge cases**: none known.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    columns:
+      - name: stage_id
+        description: "{{ doc('stage_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # the grain
+        data_tests:
+          - unique
+      - name: stage_name
+        description: "{{ doc('stages__stage_name') }}"
+        data_type: character varying(255)

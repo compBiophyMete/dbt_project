@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: int_deal_funnel_steps_unioned
+    description: >
+      For every deal, the funnel steps it reached and when it first reached each one: the nine
+      stage steps (Lead Generation to Renewal/Expansion) and the two call steps (2.1 Sales Call 1,
+      3.1 Sales Call 2). Every funnel rule is applied here and nowhere else: when a stage or a call
+      counts as reaching a step, and which deal IDs are left out. `fct_deal_funnel_steps` exposes
+      it unchanged, and `rep_sales_funnel_monthly` counts those rows per month and step.
+
+
+      **Grain**: one row per deal and funnel step (`deal_id`, `funnel_step`). **Join on both.**
+
+
+      **Transformations and business logic**: stage steps `union all` call steps; which stage or
+      activity type makes each step comes from `int_funnel_steps_mapped`.
+
+      - Stage steps, cumulative: a deal reaches step N at its first entry into stage N **or any later stage**, so a skipped stage still counts. Built from `int_deal_stage_changes_aggregated_to_entries` with a range join and `min(entered_at)`.
+
+      - Call steps: a deal reaches step 2.1 (Sales Call 1) with its first done activity of type `meeting`, and step 3.1 (Sales Call 2) with its first done activity of type `sc_2`, read from `int_activities_filtered_to_done`. The step's date is that activity's `due_at`, the planned date, because the source has no completion time. Each call step is counted on its own: a deal with a Sales Call 2 but no Sales Call 1 counts in 3.1 only.
+
+      - Every deal with a done call counts, whether or not it is in the deal change log.
+
+      - Losses don't remove a deal from a step: the funnel counts deals that reached it. For normal deals a loss is the last stage event, so no lost deal enters a later step. Evidence: `analyses/profile_stage_changes_after_loss.sql`.
+
+      - Deal IDs shared by two deals (`has_multiple_creations` from `int_deal_creations_aggregated_to_deals`) are excluded after the union. They stay in every other model.
+
+
+      **Edge cases**:
+
+      - The exclusion of shared deal IDs is checked by `assert_funnel_events_exclude_multiple_creation_deals`; call deals without a creation row are kept. Evidence: `analyses/profile_shared_deal_ids_timeline.sql`.
+
+      - Call steps are a separate population: almost no call deals appear in the deal change log, so 2.1 and 3.1 can't be read as shares of the stage steps. Evidence: `analyses/profile_activity_deal_linkage.sql`.
+
+      - A stage step is never reached before the one below it; `assert_funnel_stage_steps_in_order` checks it.
+
+      - Stage 1 entry lags deal creation by weeks, so step 1 falls in a later month than creations. Evidence: `analyses/profile_creations_vs_lead_generation_by_month.sql`.
+
+      - Stage entries and done calls can stop at different dates, so recent months can show some steps empty.
+
+      - Reopened deals: losses are not read here, so a deal that is lost, reopened and moves on still counts. Steps it reached before the loss keep their earlier date (the earliest entry wins), and steps it reaches only after the reopening count once, in the month it got there. Today no normal deal enters a stage after its loss; the warning test on `int_deals` (`current_stage_entered_at <= lost_at`) flags the first one. Evidence: `analyses/profile_stage_changes_after_loss.sql`.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (deal_id, funnel_step)
+          arguments:
+            combination_of_columns: ["deal_id", "funnel_step"]
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - not_null   # part of the grain
+      - name: funnel_step
+        description: "{{ doc('funnel_step') }}"
+        data_tests:
+          - not_null   # part of the grain
+          - relationships:   # every step is a step of the funnel (the list is tested there)
+              arguments:
+                to: ref('int_funnel_steps_mapped')
+                field: funnel_step
+      - name: entered_at
+        description: "{{ doc('int_deal_funnel_steps_unioned__entered_at') }}"
+        data_tests:
+          - not_null   # every funnel event has a time, needed for its month

@@ -1,0 +1,19 @@
+target/
+dbt_modules/
+dbt_packages/
+logs/
+dbt_internal_packages/
+.env
+.env.*
+*.pem
+.venv/
+__pycache__/
+*.pyc
+.user.yml
+.dotenv/*.env
+.mcp.json
+# Elementary CLI: local connection profile and generated reports
+.edr/
+edr_target/
+# Pipedrive API assumption notes: local working file, not part of the repo
+.claude/tasks/api-assumptions.md

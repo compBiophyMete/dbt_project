@@ -1,0 +1,74 @@
+version: 2
+
+models:
+  - name: int_deal_changes_filtered_to_owners
+    description: >
+      Owner history of Pipedrive deals: a deal handed to an owner (a Pipedrive user) at a point in
+      time.
+
+      **Grain**: one row per deal and owner change (`deal_id`, `changed_at`). **Join on both**: a
+      deal can have several owners over time. Join users on `owner_user_id` = `int_users.user_id`
+      only.
+
+
+      **Transformations and business logic**:
+
+      - Keeps the `user_id` rows of `stg_pipedrive__deal_changes` (the owner field: `user_id` in API v1, `owner_id` in API v2, [v2 migration guide](https://pipedrive.readme.io/docs/pipedrive-api-v2-migration-guide)); `new_value_integer` becomes `owner_user_id`.
+
+      - No user attributes and no first / current owner: appended rows are never rewritten, so join `int_users` downstream; per-deal owners are computed in `int_deals`.
+
+      - Incremental `append`: a `not exists` on (`deal_id`, `changed_at`) skips rows already loaded, and a unique index rejects any duplicate.
+
+      - `dwh_date`: start of the dbt run that appended the row.
+
+      - Deletes: a `post_hook` (`delete_rows_missing_upstream`) removes owner changes no longer upstream, e.g. of a deal deleted or merged in Pipedrive.
+
+
+      **Edge cases**:
+
+      - A deal gets its first owner after its creation, so it has no recorded owner in between.
+
+      - An owner change older than the lookback window is missed until a wider `lookback_days` or a `--full-refresh`.
+
+      - `on_schema_change: fail`: an upstream column change fails the run until a `--full-refresh`.
+
+
+      **Refresh**: daily, incremental on `changed_at` with a lookback of 2 days, 8 on Mondays
+      (UTC). The source is a static load today, so no freshness check.
+    config:
+      materialized: incremental
+      incremental_strategy: append
+      on_schema_change: fail
+      indexes:
+        # changed_at first: serves the max(changed_at) watermark and the dedup anti-join; rejects duplicates
+        - columns: ["changed_at", "deal_id"]
+          unique: true
+      tags:
+        - pipedrive
+        - daily
+        - incremental
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain; reports a duplicate the dedup missed
+          arguments:
+            combination_of_columns: ["deal_id", "changed_at"]
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - not_null   # part of the grain
+      - name: owner_user_id
+        description: "{{ doc('int_deal_changes_filtered_to_owners__owner_user_id') }}"
+        data_tests:
+          - not_null   # given its meaning here; also catches a user_id value that failed its format check
+          - relationships:   # the owner must exist in the user model downstream models join to
+              arguments:
+                to: ref('int_users')
+                field: user_id
+      - name: changed_at
+        description: "{{ doc('int_deal_changes_filtered_to_owners__changed_at') }}"
+        data_tests:
+          - not_null   # part of the grain and the watermark column
+      - name: dwh_date
+        description: "{{ doc('dwh_date') }}"
+        data_tests:
+          - not_null

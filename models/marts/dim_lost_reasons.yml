@@ -1,0 +1,39 @@
+version: 2
+
+models:
+  - name: dim_lost_reasons
+    description: >
+      The reasons a Pipedrive deal can be lost for. Conformed dimension: facts with a
+      `lost_reason_id` join here.
+
+
+      **Grain**: one row per lost reason (`lost_reason_id`). **Join on `lost_reason_id`.**
+
+
+      **Transformations and business logic**: the `lost_reason` options of
+      `int_fields_unnested_to_options`, `option_id` → `lost_reason_id`, `option_label` →
+      `lost_reason_name`. Type 1: current name only.
+
+
+      **Edge cases**: none known.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    columns:
+      - name: lost_reason_id
+        description: "{{ doc('int_deal_changes_filtered_to_losses__lost_reason_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # the grain
+        data_tests:
+          - unique
+      - name: lost_reason_name
+        description: "{{ doc('lost_reason_name') }}"
+        data_type: character varying(255)
+        data_tests:
+          - not_null   # a reason without a name is a broken picklist option

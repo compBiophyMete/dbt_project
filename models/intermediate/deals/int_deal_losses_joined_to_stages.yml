@@ -1,0 +1,56 @@
+version: 2
+
+models:
+  - name: int_deal_losses_joined_to_stages
+    description: >
+      Each loss of a Pipedrive deal with the stage the deal was in when it was lost. Answers
+      "where in the pipeline do deals drop out?" (losses and lost reasons per stage).
+
+
+      **Grain**: one row per deal and loss (`deal_id`, `changed_at`), same as
+      `int_deal_changes_filtered_to_losses`. **Join on both**: a deal lost more than once has
+      several rows.
+
+
+      **Transformations and business logic**:
+
+      - Stage at loss: the deal's latest stage change at or before the loss. A `left join` on `deal_id` and `stage changed_at <= loss changed_at`, then `row_number()` per loss keeps the latest one, so each loss stays exactly one row (`equal_rowcount` test).
+
+      - Table, not incremental: a late stage change before an existing loss changes that loss's stage.
+
+
+      **Edge cases**:
+
+      - A deal lost late (stages 7–9, e.g. churned after onboarding) still counts as lost. Evidence: `analyses/profile_stage_at_loss.sql`.
+
+      - Deal IDs with two creations hold two lifecycles, so their stage at loss can come from the other one.
+
+      - A loss with no earlier stage change would get a null `stage_id_at_loss` and fail `not_null`.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:   # the grain: (deal_id, changed_at)
+          arguments:
+            combination_of_columns: ["deal_id", "changed_at"]
+      - dbt_utils.equal_rowcount:   # the ranked join must keep every loss exactly once
+          arguments:
+            compare_model: ref('int_deal_changes_filtered_to_losses')
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - not_null   # part of the grain
+      - name: lost_reason_id
+        description: "{{ doc('int_deal_changes_filtered_to_losses__lost_reason_id') }}"
+      - name: stage_id_at_loss
+        description: "{{ doc('stage_id_at_loss') }}"
+        data_tests:
+          - not_null   # a loss with no earlier stage change is a new data issue
+      - name: changed_at
+        description: "{{ doc('int_deal_changes_filtered_to_losses__changed_at') }}"
+        data_tests:
+          - not_null   # part of the grain

@@ -1,0 +1,102 @@
+version: 2
+
+models:
+  - name: stg_pipedrive__deal_changes
+    description: >
+      Cleaned Pipedrive deal change log, one-to-one with the raw `deal_changes` source: a deal field
+      (`changed_field_key`) set to `new_value` at `changed_at`.
+
+
+      **Grain**: one row per deal, change time and field (`deal_id`, `changed_at`,
+      `changed_field_key`). **Join on all three.**
+
+
+      **Transformations**: `changed_field_key` trimmed and lowercased, `new_value` trimmed (empty →
+      null), `change_time` → `changed_at`. `new_value` is also typed by its key, after a format check:
+
+      - `new_value_timestamp`: `add_time` rows (ISO-8601 timestamp).
+
+      - `new_value_integer`: every other key (whole number of 1 to 9 digits).
+
+      A value that fails its format check is null in its typed column and fails that column's
+      `not_null` test. What each key means is decided in intermediate.
+
+
+      **Edge cases**: negative numbers, decimals and over-long integers fail `new_value_integer`; an
+      impossible date such as February 30th passes the format check but fails at the cast.
+
+
+      **Refresh**: view, always current with the source. Freshness is checked on the source
+      (`pipedrive`).
+    config:
+      tags: ["pipedrive"]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ["deal_id", "changed_at", "changed_field_key"]
+      # a creation cannot be recorded before it happened
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "changed_at >= new_value_timestamp"
+          config:
+            where: "changed_field_key = 'add_time'"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "changed_at <= now() + interval '1 day'"
+          config:
+            severity: error
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - not_null   # part of the grain; unique_combination_of_columns does not catch nulls
+      - name: changed_field_key
+        description: "{{ doc('field_key') }}"
+        data_tests:
+          - not_null   # proves trim / nullif lost no values
+          - accepted_values:   # lowercased; errors on a new key, which needs a typing decision before use
+              arguments:
+                values: ["add_time", "stage_id", "user_id", "lost_reason"]
+          - relationships:   # every key must be described in stg_pipedrive__fields; both sides lowercased
+              arguments:
+                to: ref('stg_pipedrive__fields')
+                field: field_key
+      - name: new_value
+        description: "{{ doc('deal_changes__new_value') }}"
+        data_tests:
+          - not_null   # proves trim / nullif lost no values
+      - name: new_value_integer
+        description: "{{ doc('stg_pipedrive__deal_changes__new_value_integer') }}"
+        data_tests:
+          - not_null:   # a non-integer value on an integer key is bad data
+              config:
+                where: "changed_field_key <> 'add_time'"
+          # Polymorphic column: each filter picks out one field key and checks it against its lookup.
+          - relationships:
+              arguments:
+                to: ref('stg_pipedrive__stages')
+                field: stage_id
+              config:
+                where: "changed_field_key = 'stage_id'"
+          - relationships:
+              arguments:
+                to: ref('stg_pipedrive__users')
+                field: user_id
+              config:
+                where: "changed_field_key = 'user_id'"
+          - accepted_values:   # lost-reason option IDs from stg_pipedrive__fields.field_value_options
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+              config:
+                where: "changed_field_key = 'lost_reason'"
+      - name: changed_at
+        description: "{{ doc('deal_changes__change_time') }}"
+        data_tests:
+          - not_null   # part of the grain; unique_combination_of_columns does not catch nulls
+      - name: new_value_timestamp
+        description: "{{ doc('stg_pipedrive__deal_changes__new_value_timestamp') }}"
+        data_tests:
+          - not_null:   # a malformed creation time is bad data
+              config:
+                where: "changed_field_key = 'add_time'"

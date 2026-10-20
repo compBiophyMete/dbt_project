@@ -1,0 +1,48 @@
+version: 2
+
+models:
+  - name: stg_pipedrive__users
+    description: >
+      Cleaned Pipedrive users (sales reps), one-to-one with the raw `users` source.
+
+
+      **Grain**: one row per user (`user_id`). **Join on `user_id` only**: names and emails are shared
+      by several users.
+
+
+      **Transformations**: `id` → `user_id`, `name` → `user_name` (trimmed, empty → null, case kept),
+      `email` trimmed (case kept), `modified` → `modified_at`. `is_valid_email` flags a valid email
+      format; a null email is not valid.
+
+
+      **Edge cases**: duplicate names and emails are kept. Evidence:
+      `analyses/profile_staging_grains.sql`.
+
+
+      **Refresh**: view, always current with the source. Freshness is checked on the source
+      (`pipedrive`).
+    config:
+      tags: ["pipedrive"]
+    columns:
+      - name: user_id
+        description: "{{ doc('users__id') }}"
+        data_tests:
+          - unique
+          - not_null
+      - name: user_name
+        description: "{{ doc('users__name') }}"
+        data_tests:
+          - not_null   # proves trim / nullif lost no values
+      - name: email
+        description: "{{ doc('users__email') }}"
+        data_tests:
+          - not_null   # proves trim / nullif lost no values
+      - name: is_valid_email
+        description: "{{ doc('stg_pipedrive__users__is_valid_email') }}"
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:   # every email must match the format; the regex lives once, in the SQL
+              arguments:
+                expression: "= true"
+      - name: modified_at
+        description: "{{ doc('users__modified') }}"

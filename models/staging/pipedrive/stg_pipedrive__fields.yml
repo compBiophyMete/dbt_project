@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: stg_pipedrive__fields
+    description: >
+      Cleaned metadata of the Pipedrive deal fields in the deal change log, one-to-one with the raw
+      `fields` source.
+
+
+      **Grain**: one row per deal field (`field_id`). `field_key` is also unique.
+
+
+      **Transformations**: `id` → `field_id`, `field_key` trimmed and lowercased, `name` →
+      `field_name` (trimmed, empty → null, `capitalize_words`). `field_value_options` kept as `jsonb`.
+
+
+      **Edge cases**:
+
+      - `field_value_options` is null for fields that are not picklists: "no options", not missing. Evidence: `analyses/profile_field_value_options.sql`.
+
+      - `field_name` no longer matches the raw name exactly: it is trimmed and every word capitalized (e.g. "Deal created" → "Deal Created"). A field name from another table matches only after the same treatment. Join on `field_key`, never on `field_name`.
+
+
+      **Refresh**: view, always current with the source. Freshness is checked on the source
+      (`pipedrive`).
+    config:
+      tags: ["pipedrive"]
+    columns:
+      - name: field_id
+        description: "{{ doc('fields__id') }}"
+        data_tests:
+          - unique
+          - not_null
+      - name: field_key
+        description: "{{ doc('field_key') }}"
+        data_tests:
+          - unique
+          - not_null   # proves trim / nullif lost no values
+          - accepted_values:   # lowercased
+              arguments:
+                values: ["add_time", "stage_id", "user_id", "lost_reason"]
+      - name: field_name
+        description: "{{ doc('fields__name') }}"
+        data_tests:
+          - not_null   # proves trim / nullif lost no values
+          - accepted_values:   # capitalize_words applied
+              arguments:
+                values: ["Deal Created", "Owner", "Stage", "Lost Reason"]
+      - name: field_value_options
+        description: "{{ doc('fields__field_value_options') }}"

@@ -1,0 +1,116 @@
+version: 2
+
+models:
+  - name: int_deals
+    description: >
+      The deal list: one row per Pipedrive deal with its creation, owner, stage and loss
+      attributes. The source has no deals table, so every deal-based model checks and joins
+      against this one (e.g. the funnel's exclusion of shared deal IDs, `has_known_deal`, `dim_deals`).
+
+
+      **Grain**: one row per deal (`deal_id`). **Join on `deal_id`.**
+
+
+      **Transformations and business logic**: every distinct `deal_id` of
+      `stg_pipedrive__deal_changes`, then `left join`s to inputs rolled up to one row per deal, so
+      no deal is dropped or multiplied. All deals are kept, flagged ones included; consumers
+      decide what to exclude.
+
+      - Creations: `created_at` and `has_multiple_creations` from `int_deal_creations_aggregated_to_deals` (rules there); the flag is `false` without a creation row.
+
+      - Owners: `first_recorded_owner_user_id` (earliest owner row; not necessarily the owner at creation, which the data doesn't hold), `current_owner_user_id` (latest), `owner_change_count` (handovers: owner rows minus 1).
+
+      - Stages: `current_stage_id` and `current_stage_entered_at` from the latest stage change, `furthest_stage_id` = highest stage, `stage_change_count` = all moves into a stage. Recorded stages only; the funnel's cumulative rule lives in `int_deal_funnel_steps_unioned`.
+
+      - Latest loss: `lost_at`, `lost_reason_id` and `stage_id_at_loss` of the deal's latest loss (a reason edit or a re-loss adds a row).
+
+
+      **Edge cases**:
+
+      - Shared deal IDs: `has_multiple_creations = true`, `created_at` = the earlier one, and every attribute mixes two deals (e.g. `furthest_stage_id` > `current_stage_id`). They are kept; `int_deal_funnel_steps_unioned` excludes them from the funnel.
+
+      - An edited creation date (shown at 12:00 AM, [Pipedrive KB](https://support.pipedrive.com/en/article/how-can-i-edit-the-deal-created-date)) is ruled out for the shared IDs, but a future one would count as a second creation; the warning test `assert_no_edited_creation_dates` flags it.
+
+      - No won status in the source: the latest loss is the deal's current loss.
+
+      - A lost deal is expected to enter no stage after its loss (`current_stage_entered_at <= lost_at`): today a loss is the last stage event of every normal deal. A reopened deal that moves on in Pipedrive would break this; the warning test flags it without failing the run, and the funnel still counts every step the deal entered. Evidence: `analyses/profile_stage_changes_after_loss.sql`.
+
+      - A deal without a creation would get a null `created_at` and fail `not_null`.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run` (attributes change as events arrive).
+      The source is a static load, so no freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+    data_tests:
+      # a deal can't move backwards except when two deals share its ID
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "furthest_stage_id >= current_stage_id"
+          config:
+            where: "not has_multiple_creations"
+      # nothing happens to a deal before it is created
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "current_stage_entered_at >= created_at and lost_at >= created_at"
+      # early warning: a lost deal enters no stage after its loss (a reopened deal would)
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "current_stage_entered_at <= lost_at"
+          config:
+            where: "lost_at is not null and not has_multiple_creations"
+            severity: warn
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - unique   # the grain
+          - not_null
+      - name: first_recorded_owner_user_id
+        description: "{{ doc('int_deals__first_recorded_owner_user_id') }}"
+        data_tests:
+          - not_null   # a deal without an owner row is a new data issue
+          - relationships:
+              arguments:
+                to: ref('int_users')
+                field: user_id
+      - name: current_owner_user_id
+        description: "{{ doc('int_deals__current_owner_user_id') }}"
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('int_users')
+                field: user_id
+      - name: current_stage_id
+        description: "{{ doc('int_deals__current_stage_id') }}"
+        data_tests:
+          - not_null   # a deal without a stage change is a new data issue
+      - name: furthest_stage_id
+        description: "{{ doc('int_deals__furthest_stage_id') }}"
+        data_tests:
+          - not_null
+      - name: lost_reason_id
+        description: "{{ doc('int_deal_changes_filtered_to_losses__lost_reason_id') }}"
+      - name: stage_id_at_loss
+        description: "{{ doc('int_deals__stage_id_at_loss') }}"
+      - name: owner_change_count
+        description: "{{ doc('int_deals__owner_change_count') }}"
+        data_tests:
+          - not_null
+      - name: stage_change_count
+        description: "{{ doc('int_deals__stage_change_count') }}"
+        data_tests:
+          - not_null
+      - name: has_multiple_creations
+        description: "{{ doc('has_multiple_creations') }}"
+        data_tests:
+          - not_null
+      - name: created_at
+        description: "{{ doc('int_deals__created_at') }}"
+        data_tests:
+          - not_null   # a deal without a creation is a new data issue
+      - name: current_stage_entered_at
+        description: "{{ doc('int_deals__current_stage_entered_at') }}"
+      - name: lost_at
+        description: "{{ doc('int_deals__lost_at') }}"

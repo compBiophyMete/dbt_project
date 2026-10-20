@@ -1,0 +1,63 @@
+version: 2
+
+models:
+  - name: int_users
+    description: >
+      Pipedrive users (sales reps), persisted incrementally. The user list that deal owners and
+      activity assignees are joined to.
+
+
+      **Grain**: one row per user (`user_id`). **Join on `user_id` only**, never on `user_name` or
+      `email` (neither is unique).
+
+
+      **Transformations and business logic**: columns from `stg_pipedrive__users` unchanged, no
+      joins or rules.
+
+      - Incremental `merge` on `user_id`: a changed user is updated in place, a new one inserted.
+
+      - `dwh_date`: start of the dbt run that last wrote the row.
+
+      - Deletes: a `post_hook` (`delete_rows_missing_upstream`) removes users no longer in `stg_pipedrive__users`.
+
+
+      **Edge cases**:
+
+      - A change with a `modified_at` older than the lookback window is missed until a wider `lookback_days` or a `--full-refresh`; the `equal_rowcount` test against `stg_pipedrive__users` reports it.
+
+      - `on_schema_change: fail`: an upstream column change fails the run until a `--full-refresh`.
+
+
+      **Refresh**: daily, incremental on `modified_at` with a lookback of 2 days, 8 on Mondays
+      (UTC). The source is a static load today, so no freshness check.
+    config:
+      materialized: incremental
+      unique_key: user_id
+      incremental_strategy: merge   # needs Postgres 15+
+      on_schema_change: fail
+      tags:
+        - pipedrive
+        - daily
+        - incremental
+    data_tests:
+      - dbt_utils.equal_rowcount:   # catches users missed by the window or deletes not applied
+          arguments:
+            compare_model: ref('stg_pipedrive__users')
+    columns:
+      - name: user_id
+        description: "{{ doc('users__id') }}"
+        data_tests:
+          - unique   # the grain; also proves the merge left no duplicate user
+          - not_null
+      - name: user_name
+        description: "{{ doc('users__name') }}"
+      - name: email
+        description: "{{ doc('users__email') }}"
+      - name: is_valid_email
+        description: "{{ doc('stg_pipedrive__users__is_valid_email') }}"
+      - name: modified_at
+        description: "{{ doc('users__modified') }}"
+      - name: dwh_date
+        description: "{{ doc('dwh_date') }}"
+        data_tests:
+          - not_null

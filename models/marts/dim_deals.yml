@@ -1,0 +1,134 @@
+version: 2
+
+models:
+  - name: dim_deals
+    description: >
+      Pipedrive deals with their current attributes. Conformed deal dimension: every deal fact joins
+      here on `deal_id` to filter or group by owner, stage, lost reason or `has_multiple_creations`.
+
+
+      **Grain**: one row per deal in the deal change log (`deal_id`). **Join on `deal_id`.**
+
+      **Transformations and business logic**: every attribute from `int_deals` unchanged (rules
+      there), plus current names via `left join`s (n:1): owner names from `dim_users`, stage names
+      from `dim_stages` (current, furthest, at loss), the lost reason from `dim_lost_reasons`. Type 1:
+      current state only; history is in the facts.
+
+
+      **Edge cases**:
+
+      - `first_recorded_owner_*` is not necessarily the owner at creation, which the data doesn't hold.
+
+      - Deal IDs with `has_multiple_creations = true` hold two deals, so their attributes mix both; filter on the flag for deal-level KPIs. Evidence: `analyses/profile_shared_deal_ids_timeline.sql`.
+
+      - No won status in the source: a deal's latest loss is its current state.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.equal_rowcount:   # the name joins must keep every deal
+          arguments:
+            compare_model: ref('int_deals')
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # the grain
+        data_tests:
+          - unique
+      - name: first_recorded_owner_user_id
+        description: "{{ doc('int_deals__first_recorded_owner_user_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_users')
+                field: user_id
+      - name: current_owner_user_id
+        description: "{{ doc('int_deals__current_owner_user_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_users')
+                field: user_id
+      - name: current_stage_id
+        description: "{{ doc('int_deals__current_stage_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_stages')
+                field: stage_id
+      - name: furthest_stage_id
+        description: "{{ doc('int_deals__furthest_stage_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_stages')
+                field: stage_id
+      - name: lost_reason_id
+        description: "{{ doc('int_deal_changes_filtered_to_losses__lost_reason_id') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_lost_reasons')
+                field: lost_reason_id
+      - name: stage_id_at_loss
+        description: "{{ doc('int_deals__stage_id_at_loss') }}"
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_stages')
+                field: stage_id
+      - name: first_recorded_owner_name
+        description: "{{ doc('dim_deals__first_recorded_owner_name') }}"
+        data_type: character varying(255)
+      - name: current_owner_name
+        description: "{{ doc('dim_deals__current_owner_name') }}"
+        data_type: character varying(255)
+      - name: current_stage_name
+        description: "{{ doc('dim_deals__current_stage_name') }}"
+        data_type: character varying(255)
+      - name: furthest_stage_name
+        description: "{{ doc('dim_deals__furthest_stage_name') }}"
+        data_type: character varying(255)
+      - name: lost_reason_name
+        description: "{{ doc('lost_reason_name') }}"
+        data_type: character varying(255)
+      - name: stage_name_at_loss
+        description: "{{ doc('stage_name_at_loss') }}"
+        data_type: character varying(255)
+      - name: owner_change_count
+        description: "{{ doc('int_deals__owner_change_count') }}"
+        data_type: integer
+        constraints:
+          - type: not_null
+      - name: stage_change_count
+        description: "{{ doc('int_deals__stage_change_count') }}"
+        data_type: integer
+        constraints:
+          - type: not_null
+      - name: has_multiple_creations
+        description: "{{ doc('has_multiple_creations') }}"
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: created_at
+        description: "{{ doc('int_deals__created_at') }}"
+        data_type: timestamp without time zone
+      - name: current_stage_entered_at
+        description: "{{ doc('int_deals__current_stage_entered_at') }}"
+        data_type: timestamp without time zone
+      - name: lost_at
+        description: "{{ doc('int_deals__lost_at') }}"
+        data_type: timestamp without time zone

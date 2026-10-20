@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: dim_users
+    description: >
+      Pipedrive users (sales reps). Conformed dimension: deal owners and activity assignees join here
+      on `user_id`.
+
+
+      **Grain**: one row per user (`user_id`). **Join on `user_id` only**: names are not unique.
+
+
+      **Transformations and business logic**: `int_users`, cast to the contract types. Type 1:
+      current state only. `email` is left out on purpose (personal data; it stays in `int_users`);
+      `is_valid_email` is kept.
+
+
+      **Edge cases**: users that own no deal and have no activity are kept.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+      contract:
+        enforced: true
+    columns:
+      - name: user_id
+        description: "{{ doc('users__id') }}"
+        data_type: integer
+        constraints:
+          - type: not_null   # the grain
+        data_tests:
+          - unique
+      - name: user_name
+        description: "{{ doc('users__name') }}"
+        data_type: character varying(255)
+      - name: is_valid_email
+        description: "{{ doc('stg_pipedrive__users__is_valid_email') }}"
+        data_type: boolean
+      - name: modified_at
+        description: "{{ doc('users__modified') }}"
+        data_type: timestamp without time zone

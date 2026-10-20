@@ -1,0 +1,207 @@
+# dbt CI for pull requests.
+#
+# Each run builds in its own clone database on the CI Postgres server (repository secrets below):
+# `dbt_ci_pr<PR number>_run<run number>_<attempt>`, created empty and loaded with the raw CSVs from
+# raw_data/. The deployed database is never touched.
+#
+#   0. A reviewer approves the run (`ci-run-approval` environment) before any database is created.
+#      Developers keep pushing to a PR, so a newer push replaces a run still waiting for this
+#      approval: only the latest commit is approved and built.
+#   1. dbt-project-evaluator checks the PR's code against dbt's modeling best practices (blocking).
+#   2. The base branch is built in the clone: the "deployed" state, and its manifest.json.
+#   3. state:modified+ against that manifest finds the changed models and everything downstream.
+#   4. Those models are rebuilt with --full-refresh on top of the deployed state.
+#   5. dbt test runs on the same selection (blocking: any failing test fails the check).
+#   6. The clone database is kept so the developer can inspect failures, and dropped only after a
+#      reviewer approves the `ci-db-cleanup` environment.
+#
+# `dbt run` then `dbt test`, never `dbt build`, as in the rest of the project.
+#
+# Setup (once, in the repository settings):
+#   - Secrets: CI_DB_HOST, CI_DB_PORT, CI_DB_USER, CI_DB_PASSWORD. The user needs CREATEDB.
+#   - Variables (optional): CI_DB_MAINTENANCE_DB (database used to create and drop the clones,
+#     default `postgres`), CI_DB_SSLMODE (default `prefer`; `require` for most hosted Postgres).
+#   - Environments with required reviewers: `ci-run-approval` (the gate before a run creates its
+#     clone database) and `ci-db-cleanup` (the gate for dropping it).
+
+name: dbt CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DBT_TYPE: postgres
+  DBT_HOST: ${{ secrets.CI_DB_HOST }}
+  DBT_PORT: ${{ secrets.CI_DB_PORT }}
+  DBT_USER: ${{ secrets.CI_DB_USER }}
+  DBT_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+  DBT_DATABASE: dbt_ci_pr${{ github.event.pull_request.number || 'manual' }}_run${{ github.run_number }}_${{ github.run_attempt }}
+  DBT_SCHEMA: public
+  DBT_THREADS: 4
+  PGHOST: ${{ secrets.CI_DB_HOST }}
+  PGPORT: ${{ secrets.CI_DB_PORT }}
+  PGUSER: ${{ secrets.CI_DB_USER }}
+  PGPASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+  PGSSLMODE: ${{ vars.CI_DB_SSLMODE || 'prefer' }}
+  MAINTENANCE_DB: ${{ vars.CI_DB_MAINTENANCE_DB || 'postgres' }}
+
+jobs:
+  # 0. Approval gate: nothing touches the CI database until a reviewer approves this run. Only the
+  #    approval waits per PR: a newer push cancels a run still waiting here, so reviewers approve the
+  #    latest commit only. Runs past this gate are never cancelled, so a run that created a clone
+  #    database always reaches its cleanup.
+  approve:
+    runs-on: ubuntu-latest
+    environment: ci-run-approval
+    concurrency:
+      group: dbt-ci-approval-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Run approved
+        run: echo "Approved CI run for ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+
+  dbt-ci:
+    needs: approve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # dbt-project-evaluator rules fail the job instead of warning (see dbt_project.yml).
+      DBT_PROJECT_EVALUATOR_SEVERITY: error
+      BASE_REF: ${{ github.base_ref || 'main' }}
+      BASE_DIR: ${{ github.workspace }}/../base
+
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dbt
+        run: pip install -r requirements.txt
+
+      - name: Create the clone database and load the raw Pipedrive data
+        run: |
+          psql -v ON_ERROR_STOP=1 -d "$MAINTENANCE_DB" -c "create database \"$DBT_DATABASE\""
+          psql -v ON_ERROR_STOP=1 -d "$DBT_DATABASE" -f init.sql
+          for file in raw_data/*.csv; do
+            table_name=$(basename "$file" .csv)
+            psql -v ON_ERROR_STOP=1 -d "$DBT_DATABASE" -c "\copy $table_name from '$file' delimiter ',' csv header"
+          done
+          echo "Clone database: \`$DBT_DATABASE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install dbt packages
+        run: dbt deps
+
+      # 1. Best-practice check on the PR's code (blocking). The evaluator is opt-in (dbt_project.yml):
+      #    run_evaluator enables its models and tests for this step only.
+      - name: dbt-project-evaluator
+        run: |
+          dbt seed --select dbt_project_evaluator_exceptions --profiles-dir .
+          dbt run --select package:dbt_project_evaluator --vars '{run_evaluator: true}' --profiles-dir .
+          dbt test --select package:dbt_project_evaluator --vars '{run_evaluator: true}' --profiles-dir .
+
+      # 2. The deployed state: the base branch, built in full in the clone. It uses this branch's
+      #    profiles.yml (connection from the environment), whatever the base branch's profiles.yml says.
+      - name: Build the base branch (deployed state)
+        id: base
+        run: |
+          git worktree add "$BASE_DIR" "origin/$BASE_REF"
+          cd "$BASE_DIR"
+          dbt deps
+          dbt parse --profiles-dir "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE/base-state"
+          cp target/manifest.json "$GITHUB_WORKSPACE/base-state/manifest.json"
+          if dbt run --profiles-dir "$GITHUB_WORKSPACE"; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "> ⚠️ The base branch could not be built in the clone database, so every model is deployed and tested." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # 3. Changed models and their downstream, compared with the deployed manifest.
+      - name: Detect changed models
+        id: changes
+        run: |
+          if [ "${{ steps.base.outputs.built }}" = "true" ]; then
+            selection="state:modified+"
+          else
+            selection="*"
+          fi
+          echo "selection=$selection" >> "$GITHUB_OUTPUT"
+          dbt ls --resource-type model --select "$selection" --exclude package:dbt_project_evaluator \
+            --state base-state --profiles-dir . --output name --quiet > changed_models.txt || true
+          count=$(grep -c . changed_models.txt || true)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Models to deploy ($count, selection \`$selection\`)"
+            sed 's/^/- /' changed_models.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # 4. Deploy the changes on top of the deployed state.
+      - name: Deploy changed models with full refresh
+        if: steps.changes.outputs.count != '0'
+        run: |
+          dbt run --select "${{ steps.changes.outputs.selection }}" --exclude package:dbt_project_evaluator \
+            --state base-state --full-refresh --profiles-dir .
+
+      # 5. Test what was deployed (blocking).
+      - name: Test changed models and downstream
+        if: steps.changes.outputs.count != '0'
+        run: |
+          dbt test --select "${{ steps.changes.outputs.selection }}" --exclude package:dbt_project_evaluator \
+            --state base-state --profiles-dir .
+
+      - name: Summarize test results
+        if: always() && steps.changes.outputs.count != '0'
+        run: |
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, collections, pathlib
+          path = pathlib.Path("target/run_results.json")
+          if not path.exists():
+              print("No test results.")
+              raise SystemExit
+          results = json.loads(path.read_text())
+          if results["args"].get("which") != "test":
+              print("Tests did not run.")
+              raise SystemExit
+          counts = collections.Counter(r["status"] for r in results["results"])
+          print("### Test results")
+          print(", ".join(f"{status}: {n}" for status, n in sorted(counts.items())))
+          for r in results["results"]:
+              if r["status"] not in ("pass", "success"):
+                  print(f"- **{r['status']}** `{r['unique_id'].split('.')[2]}` ({r.get('failures')} rows)")
+          EOF
+
+      - name: Upload dbt artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-artifacts
+          path: |
+            target/manifest.json
+            target/run_results.json
+            base-state/manifest.json
+          if-no-files-found: ignore
+
+  # 6. Drop the clone database only after a reviewer approves, so failures can be inspected first.
+  cleanup:
+    needs: [approve, dbt-ci]
+    # Only runs that passed the approval gate can have created a clone database; a run replaced
+    # while waiting for approval has nothing to drop.
+    if: always() && needs.approve.result == 'success'
+    runs-on: ubuntu-latest
+    environment: ci-db-cleanup
+    steps:
+      - name: Drop the clone database
+        run: |
+          psql -v ON_ERROR_STOP=1 -d "$MAINTENANCE_DB" -c "drop database if exists \"$DBT_DATABASE\" with (force)"
+          echo "Dropped clone database \`$DBT_DATABASE\`" >> "$GITHUB_STEP_SUMMARY"
