@@ -15,7 +15,7 @@ Standards for YAML structure, descriptions, doc blocks, tests and contracts live
 | Kind | Name | One row per | Holds | Example |
 |---|---|---|---|---|
 | **Dimension** | `dim_<entity>` (plural) | business entity: a deal, a user, a stage | the entity's key and **descriptive attributes** used to filter, group and label (name, type, current stage, owner, flags) | `dim_deals`, `dim_users`, `dim_stages` |
-| **Fact** | `fct_<business process>` (plural, as events) | business **event or measurement** at a declared grain | keys of the dimensions involved, the event's timestamps, and **numeric measures** | `fct_deal_stage_entries`, `fct_sales_calls`, `fct_deal_pipeline` |
+| **Fact** | `fct_<business process>` (plural, as events) | business **event or measurement** at a declared grain | keys of the dimensions involved, the event's timestamps, and **numeric measures** | `fct_deal_stage_changes`, `fct_activities`, `fct_deal_funnel_steps` |
 | **Report** | `rep_<subject>_<grain>` | **reporting grain** for one consumer (month × KPI, owner × week) | aggregated, presentation-ready columns with the exact names the consumer asked for | `rep_sales_funnel_monthly` |
 
 How they relate: **dimensions and facts are the reusable core** (a star schema: facts in the middle, dimensions around them, joined on the dimension key). **Reports are built on top of facts and dimensions** for one specific question. Build a report only when a request asks for it; a new question should usually be answerable from the existing facts and dimensions.
@@ -87,7 +87,7 @@ Pick the type from the process (three fact table types, plus factless):
 |---|---|---|---|
 | **Transaction** | event, at the moment it happens | the process is a stream of discrete events | `fct_deal_stage_entries`: one row per deal and stage entered |
 | **Periodic snapshot** | entity × regular period (day, month), even with no activity | measuring a **state** over time (open pipeline per month) | `fct_pipeline_monthly`: one row per stage and month, open deals |
-| **Accumulating snapshot** | process instance, with one timestamp per milestone | a pipeline with a clear start, known steps and an end | `fct_deal_pipeline`: one row per deal, `created_at`, `stage_1_entered_at` … `lost_at`, lags in days |
+| **Accumulating snapshot** | process instance, with one timestamp per milestone | a pipeline with a clear start, known steps and an end | e.g. one row per deal with `created_at`, one timestamp per stage reached, `lost_at`, and lags in days |
 | **Factless** | an event with no numeric measure, only keys | recording that something happened (a call held, a deal entering a step) | `fct_sales_calls`: one row per done call |
 
 - **Measures are additive whenever possible** (summable across every dimension: counts, amounts, durations). **Semi-additive** measures (balances, open-deal counts in a snapshot) can't be summed over time; document that on the column. **Non-additive** measures (ratios, conversion rates) are never stored alone: store the additive **numerator and denominator**, and compute the ratio in the report or BI layer.

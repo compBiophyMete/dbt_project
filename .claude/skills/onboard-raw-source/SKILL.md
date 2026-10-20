@@ -172,14 +172,14 @@ Reference: `models/staging/pipedrive/_pipedrive__sources.yml`. Copy its structur
 2. **`**Grain**`**: "one row per … (`col`, `col`)", then either "`init.sql` declares `<col>` as the key" or "`init.sql` declares no key; a test checks that the … is unique". Name an alternate unique column and what references it ("`type` is also unique, and it is the column that `activity.type` points to"). No explanation of why another key fails: that is a finding.
 3. **`**Load / test scope**`**: "static load from `raw_data/<file>.csv`. Contract tests cover the full table." (or the 30-day window on `<timestamp_col>` for an ongoing load).
 4. **`**Freshness**`**: every table gets one of two wordings:
-   - **Table with a timestamp** (active check): "none expected today, because the data is a static load. For a live feed the check is ready on `<col>`: warning when the latest <col meaning> is more than 1 day old, error after 2 days." Then one sentence on what the column measures, and if it isn't a load timestamp, the trade-off and "switch to one (e.g. `_loaded_at`) once the loader adds it". End with "On the static data the check reports error, as expected." Add the `config:` block below the description.
+   - **Table with a load or change timestamp** (active check; a planned date such as `activity.due_to` doesn't count): "none expected today, because the data is a static load. For a live feed the check is ready on `<col>`: warning when the latest <col meaning> is more than 1 day old, error after 2 days." Then one sentence on what the column measures, and if it isn't a load timestamp, the trade-off and "switch to one (e.g. `_loaded_at`) once the loader adds it". End with "On the static data the check reports error, as expected." Add the `config:` block below the description.
    - **Table without a load timestamp**: "none today. The table has no load timestamp, and the data is a static load. Once the loader adds `_loaded_at`, a freshness check on it is added with thresholds that follow the load schedule: daily load → warning after 1 day, error after 2 days; hourly load → warning after 1 hour, error after 2 hours." Under `config:`, after the tag, add the freshness lines commented out below a `# TODO`. Never point `loaded_at_field` at a column that doesn't exist yet.
 
 Freshness config lives under the table's `config:` (top-level `loaded_at_field` / `freshness` is deprecated in dbt 1.10). **Thresholds follow the load schedule**: daily → `warn_after: {count: 1, period: day}`, `error_after: {count: 2, period: day}`; hourly → `{count: 1, period: hour}` / `{count: 2, period: hour}`.
 
 Nothing else in a table description: no counts, no "Data quality" or topic sections, no Evidence line. (Shared column doc blocks are the exception: a short join warning such as "Not unique … never join on it" stays, since staging reuses the block.) A test that fails on purpose is not explained in the source and gets no test `description` or comment; the staging model's Edge cases explain it.
 
-Table with a timestamp:
+Table with a load or change timestamp:
 
 ```yaml
       - name: deal_changes
@@ -275,7 +275,7 @@ Table without a load timestamp:
 - [ ] No raw file, loader, or warehouse table modified
 - [ ] The source description has the load mechanism and a **Freshness assumption** section that lists the active and pending checks
 - [ ] Each table description follows the standard pattern (Purpose, Grain, Load / test scope, Freshness), separated by two blank lines, with no data-quality findings, evidence queries or counts
-- [ ] Every table with a timestamp has a `config:` freshness check with schedule-based thresholds; every other table has the commented `# TODO` freshness lines for `_loaded_at` under its `config:`
+- [ ] Every table with a load or change timestamp has a `config:` freshness check with schedule-based thresholds; every other table has the commented `# TODO` freshness lines for `_loaded_at` under its `config:`
 - [ ] No test description or comment explains a known failure in the source
 - [ ] Each table has a key + value contract backed by profiling evidence
 - [ ] Source and table descriptions are inline in the YAML; every column description is a `{{ doc() }}` reference to a block in `_<system>__docs.md`, with shared columns using shared keys

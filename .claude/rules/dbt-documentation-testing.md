@@ -101,7 +101,7 @@ Every exposure must include:
 - **Primary keys**: `unique` + `not_null`
 - **Foreign keys**: `relationships` tests
 - **Business rules**: `accepted_values`, range checks, custom business logic tests
-- **Data quality**: every source table with a timestamp gets a source freshness check (`config: loaded_at_field` + `freshness`), even on a static load, so the project is ready for a live feed. Thresholds follow the load schedule: daily → warn after 1 day, error after 2 days; hourly → warn after 1 hour, error after 2 hours. A table without a timestamp gets the check on `_loaded_at` once the loader adds it
+- **Data quality**: every source table with a load or change timestamp gets a source freshness check (a planned date such as `activity.due_to` doesn't count) (`config: loaded_at_field` + `freshness`), even on a static load, so the project is ready for a live feed. Thresholds follow the load schedule: daily → warn after 1 day, error after 2 days; hourly → warn after 1 hour, error after 2 hours. A table without a timestamp gets the check on `_loaded_at` once the loader adds it
 
 ### Source YAML Testing Rule
 
@@ -212,7 +212,8 @@ sources:
           table.
 
 
-          **Freshness**: checked on `due_to` (see the `onboard-raw-source` skill for the wording).
+          **Freshness**: none today; `due_to` is a planned date, not a load time, so the check waits for a
+          `_loaded_at` column (see the `onboard-raw-source` skill for the wording).
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:

@@ -164,6 +164,29 @@ After the first build, an incremental model processes only recent rows instead o
 | dbt docs | `.venv/bin/dbt docs generate --static`, then open `target/static_index.html` | models, sources, column docs, tests, lineage (layers colour-coded) |
 | Elementary report | `.venv/bin/edr report --profiles-dir .edr`, then open `edr_target/elementary_report.html` | test results with failing-row samples, run history |
 
+> ⚠️ **Warning**: On a fresh database, load the dbt-project-evaluator exceptions seed before generating the docs. One of the evaluator's models reads it while compiling, so `dbt docs generate` fails with `relation "dbt_project_evaluator.dbt_project_evaluator_exceptions" does not exist` until it is loaded:
+>
+> ```bash
+> .venv/bin/dbt seed --select dbt_project_evaluator_exceptions
+> ```
+
+Commands, run from the repository root after a `dbt run` and `dbt test`:
+
+```bash
+# export the credentials in this terminal (see Configure credentials)
+set -a; source .dotenv/.dev.env; set +a
+
+# dbt docs: build the site, then serve it at http://localhost:8080
+.venv/bin/dbt docs generate
+.venv/bin/dbt docs serve --port 8080
+
+# dbt docs as one self-contained file instead (no server): open target/static_index.html
+.venv/bin/dbt docs generate --static
+
+# Elementary report from the latest test results: open edr_target/elementary_report.html
+.venv/bin/edr report --profiles-dir .edr
+```
+
 Both are built from your own database and are not committed. The Elementary report needs its CLI and a connection profile: see [docs/elementary-setup.md](docs/elementary-setup.md).
 
 ### Continuous integration

@@ -70,9 +70,9 @@ Model the Pipedrive CRM data into **reusable dbt layers** (sources → staging �
 | Commits / PR | [.claude/rules/commit-dbt-changes.md](../rules/commit-dbt-changes.md): only when asked; one commit per layer, in lineage order; never stage `.env*`, `profiles.yml` or credentials |
 | Running dbt | **`dbt run` then `dbt test`, never `dbt build`**, so a failing test doesn't skip downstream models. Report pass / warn / fail with counts |
 | Keys | No surrogate keys. A composite grain is enforced with `dbt_utils.unique_combination_of_columns` plus `not_null` on each column, and documented as the join key |
-| Known data issues | No thresholds on any test: a known issue fails like a new one. The staging or model description's Edge cases explain that it fails on purpose, why, and which analysis to rerun; no test `description` or comment. Failing on purpose today: source `activity.activity_id` unique, source and `stg_pipedrive__activities` `deal_id` relationships, `int_deals` `not has_multiple_creations`. `severity: warn` only for early-warning tests expected to find nothing |
+| Known data issues | No thresholds on any test: a known issue fails like a new one. The staging or model description's Edge cases explain that it fails on purpose, why, and which analysis to rerun; no test `description` or comment. Failing on purpose today: source `activity.activity_id` unique, source and `stg_pipedrive__activities` `deal_id` relationships, `int_deal_creations_aggregated_to_deals` `not has_multiple_creations`. `severity: warn` only for early-warning tests expected to find nothing |
 | Business meaning | Never invent it. Ask the user and record the answer in §7 |
-| Source freshness | Every source table with a timestamp has a freshness check, thresholds by load schedule (daily: warn 1 day / error 2 days; hourly: 1 hour / 2 hours): `activity` on `due_to`, `deal_changes` on `change_time`. `activity_types`, `fields`, `stages`, `users` wait for a `_loaded_at` column (commented `config:` ready) |
+| Source freshness | Every source table with a load or change timestamp has a freshness check, thresholds by load schedule (daily: warn 1 day / error 2 days; hourly: 1 hour / 2 hours): `deal_changes` on `change_time`. `activity` (its `due_to` is a planned date, not a load time), `activity_types`, `fields`, `stages`, `users` wait for a `_loaded_at` column (commented `config:` ready) |
 | Tags | Every model and source table carries `pipedrive`, set in `dbt_project.yml` and in its own YAML. Every intermediate and mart model carries `daily`; lookback incrementals also `incremental`. Staging views carry no schedule tag |
 | Orchestration | `orchestration/airflow/dags/dbt_pipedrive_refresh.py`: source freshness, then `tag:daily,tag:incremental`, then `tag:daily+` (excluding incrementals), then tests on `+tag:daily+`; test failures are reported by a separate task and don't turn the run red |
 | Naming | Staging `stg_<folder>__<entity>s` in schema `stg_<folder>`. Intermediate `int_<entity>s_<verb>s` in business-area folders (`deals/`, `funnel/`, `activities/`, `users/`, `fields/`), each with `_intermediate_<area>__docs.md`; entity models keep plain names (`int_deals`, `int_users`). Marts `dim_` / `fct_` / `rep_`; columns per dbt's style guide: primary key `<object>_id`, one name per concept across models (`lost_at`), display names end in `_name`, ids first. Exceptions: the brief's report columns and `funnel_step` |
@@ -114,12 +114,13 @@ Every model below is built, documented and tested.
 | `int_deal_changes_filtered_to_losses` | (`deal_id`, `changed_at`) | `lost_reason` rows as `lost_reason_id`; incremental event pattern; a reason edit or re-loss adds a row |
 | `int_deal_losses_joined_to_stages` | (`deal_id`, `changed_at`) | stage at loss = latest stage change at or before the loss (ranked join) |
 | `int_deal_stage_changes_aggregated_to_entries` | (`deal_id`, `stage_id`) | first entry per deal and recorded stage |
-| `int_deals` | `deal_id` | the deal list: creation, first recorded / current owner, current / furthest stage, latest loss, counts, `has_multiple_creations` |
+| `int_deal_creations_aggregated_to_deals` | `deal_id` | `created_at` (earliest) and `has_multiple_creations`: the one definition of the shared-ID flag |
+| `int_deals` | `deal_id` | the deal list: creation (from `int_deal_creations_aggregated_to_deals`), first recorded / current owner, current / furthest stage, latest loss, counts, `has_multiple_creations` |
 | `int_funnel_steps_mapped` | `funnel_step` | the only place stages and activity types are mapped to steps and named |
 | `int_deal_funnel_steps_unioned` | (`deal_id`, `funnel_step`) | all funnel rules (§7); stage steps `union all` call steps |
 | `int_activities_joined_to_types` | (`activity_id`, `deal_id`) | activities with `activity_type_id`, name and active state |
 | `int_activities_filtered_to_done` | (`activity_id`, `deal_id`) | done activities with `has_known_deal` |
-| `int_users` | `user_id` | incremental `merge`; hand-written delete `post_hook` |
+| `int_users` | `user_id` | incremental `merge`; delete `post_hook` via `delete_rows_missing_upstream` |
 | `int_fields_unnested_to_options` | (`field_key`, `option_id`) | picklist options; lost-reason names |
 
 ### Marts (`pipedrive_analytics` schema, tables, enforced contracts)
@@ -169,7 +170,7 @@ Numbers live in the analyses; rerun them before relying on a finding.
 | Losses | A loss doesn't remove a deal from the steps it reached |
 | Owner at creation | Not in the data: `int_deals` exposes `first_recorded_owner_user_id`, named for what it is |
 | Names in event tables | Append tables store IDs only; current names are joined in the marts at build time |
-| Edited creation dates | Not handled yet (none in the data). If the warning test fires: keep `recorded_created_at` and `edited_created_date` plus `has_edited_creation_date` in `int_deals`, and don't count the edit as a second creation |
+| Edited creation dates | Not handled yet (none in the data). If the warning test fires: keep `recorded_created_at` and `edited_created_date` plus `has_edited_creation_date` in `int_deal_creations_aggregated_to_deals`, and don't count the edit as a second creation |
 | Marts | Tables in `pipedrive_analytics`, enforced contracts, none incremental |
 | Cohort report | Includes the call steps (they fill in if the IDs line up in future data) |
 
@@ -178,13 +179,19 @@ Each decision is stated in plain words in the description of the model that appl
 ## 8. Data flow
 
 ```
-stg_pipedrive__deal_changes ─┬─> int_deal_changes_filtered_to_creations ─┐
-                             ├─> int_deal_changes_filtered_to_stages ────┼─> int_deal_stage_changes_aggregated_to_entries ─┐
-                             ├─> int_deal_changes_filtered_to_owners ────┤                                                  │
-                             └─> int_deal_changes_filtered_to_losses ────┼─> int_deal_losses_joined_to_stages               │
-                                                                         └─> int_deals (shared-ID flag) ───────────────────┤
-stg_pipedrive__stages + stg_pipedrive__activity_types ──> int_funnel_steps_mapped ─────────────────────────────────────────┤
-stg_pipedrive__activities ──> int_activities_joined_to_types ──> int_activities_filtered_to_done ──────────────────────────┴─> int_deal_funnel_steps_unioned
+stg_pipedrive__deal_changes
+  ├─> int_deal_changes_filtered_to_creations ──> int_deal_creations_aggregated_to_deals (shared-ID flag)
+  ├─> int_deal_changes_filtered_to_stages ──> int_deal_stage_changes_aggregated_to_entries
+  ├─> int_deal_changes_filtered_to_owners
+  └─> int_deal_changes_filtered_to_losses ──> int_deal_losses_joined_to_stages
+int_deal_creations_aggregated_to_deals + owners + stages + int_deal_losses_joined_to_stages ──> int_deals
+stg_pipedrive__stages + stg_pipedrive__activity_types ──> int_funnel_steps_mapped
+stg_pipedrive__activities ──> int_activities_joined_to_types ──> int_activities_filtered_to_done (has_known_deal from int_deals)
+
+int_deal_funnel_steps_unioned <── int_deal_stage_changes_aggregated_to_entries
+                              <── int_activities_filtered_to_done
+                              <── int_funnel_steps_mapped
+                              <── int_deal_creations_aggregated_to_deals (excludes shared IDs)
 int_deal_funnel_steps_unioned ──> fct_deal_funnel_steps ──> rep_sales_funnel_monthly
 stg_pipedrive__users ──> int_users ──> dim_users
 stg_pipedrive__fields ──> int_fields_unnested_to_options ──> dim_lost_reasons
