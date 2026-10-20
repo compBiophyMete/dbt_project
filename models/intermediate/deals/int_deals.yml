@@ -16,7 +16,7 @@ models:
       no deal is dropped or multiplied. All deals are kept, flagged ones included; consumers
       decide what to exclude.
 
-      - Creations: `created_at` is the **earliest** creation, the only one that precedes every event on a shared ID; `creation_count` is `0` without a creation row.
+      - Creations: `created_at` and `has_multiple_creations` from `int_deal_creations_aggregated_to_deals` (rules there); the flag is `false` without a creation row.
 
       - Owners: `first_recorded_owner_user_id` (earliest owner row; not necessarily the owner at creation, which the data doesn't hold), `current_owner_user_id` (latest), `owner_change_count` (handovers: owner rows minus 1).
 
@@ -24,12 +24,10 @@ models:
 
       - Latest loss: `lost_at`, `lost_reason_id` and `stage_id_at_loss` of the deal's latest loss (a reason edit or a re-loss adds a row).
 
-      - `has_multiple_creations`: more than one creation. Such an ID holds two separate deals running in parallel (an ID collision); `int_deal_funnel_steps_unioned` excludes them from the funnel, not here.
-
 
       **Edge cases**:
 
-      - Shared deal IDs: `creation_count = 2`, `created_at` = the earlier one, and every attribute mixes two deals (e.g. `furthest_stage_id` > `current_stage_id`). The test `not has_multiple_creations` fails on them on purpose (no thresholds).
+      - Shared deal IDs: `has_multiple_creations = true`, `created_at` = the earlier one, and every attribute mixes two deals (e.g. `furthest_stage_id` > `current_stage_id`). They are kept; `int_deal_funnel_steps_unioned` excludes them from the funnel.
 
       - An edited creation date (shown at 12:00 AM, [Pipedrive KB](https://support.pipedrive.com/en/article/how-can-i-edit-the-deal-created-date)) is ruled out for the shared IDs, but a future one would count as a second creation; the warning test `assert_no_edited_creation_dates` flags it. 
       - No won status in the source: the latest loss is the deal's current loss.
@@ -42,9 +40,6 @@ models:
     config:
       tags: ["pipedrive", "daily"]
     data_tests:
-      - dbt_utils.expression_is_true:
-          arguments:
-            expression: "not has_multiple_creations"
       # a deal can't move backwards except when two deals share its ID
       - dbt_utils.expression_is_true:
           arguments:
@@ -89,10 +84,6 @@ models:
         description: "{{ doc('int_deal_changes_filtered_to_losses__lost_reason_id') }}"
       - name: stage_id_at_loss
         description: "{{ doc('int_deals__stage_id_at_loss') }}"
-      - name: creation_count
-        description: "{{ doc('int_deals__creation_count') }}"
-        data_tests:
-          - not_null
       - name: owner_change_count
         description: "{{ doc('int_deals__owner_change_count') }}"
         data_tests:

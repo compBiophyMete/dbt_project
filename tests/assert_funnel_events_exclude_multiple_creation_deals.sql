@@ -11,6 +11,6 @@ from
 where
     funnel_events.deal_id in (
         select deal_id
-        from {{ ref('int_deals') }}
+        from {{ ref('int_deal_creations_aggregated_to_deals') }}
         where has_multiple_creations
     )

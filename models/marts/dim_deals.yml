@@ -7,9 +7,7 @@ models:
       here on `deal_id` to filter or group by owner, stage, lost reason or `has_multiple_creations`.
 
 
-      **Grain**: one row per deal in the deal change log (`deal_id`). **Join on `deal_id`.** Most
-      activity deal IDs are not here.
-
+      **Grain**: one row per deal in the deal change log (`deal_id`). **Join on `deal_id`.**
 
       **Transformations and business logic**: every attribute from `int_deals` unchanged (rules
       there), plus current names via `left join`s (n:1): owner names from `dim_users`, stage names
@@ -110,11 +108,6 @@ models:
       - name: stage_name_at_loss
         description: "{{ doc('stage_name_at_loss') }}"
         data_type: character varying(255)
-      - name: creation_count
-        description: "{{ doc('int_deals__creation_count') }}"
-        data_type: integer
-        constraints:
-          - type: not_null
       - name: owner_change_count
         description: "{{ doc('int_deals__owner_change_count') }}"
         data_type: integer

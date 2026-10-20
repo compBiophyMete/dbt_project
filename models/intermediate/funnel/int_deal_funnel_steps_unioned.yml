@@ -23,12 +23,12 @@ models:
 
       - Losses don't remove a deal from a step: the funnel counts deals that reached it.
 
-      - Deal IDs shared by two deals (`int_deals.has_multiple_creations`) are excluded after the union. They stay in every other model.
+      - Deal IDs shared by two deals (`has_multiple_creations` from `int_deal_creations_aggregated_to_deals`) are excluded after the union. They stay in every other model.
 
 
       **Edge cases**:
 
-      - The exclusion of shared deal IDs is checked by `assert_funnel_events_exclude_multiple_creation_deals`; call deals that aren't in `int_deals` are kept. Evidence: `analyses/profile_shared_deal_ids_timeline.sql`.
+      - The exclusion of shared deal IDs is checked by `assert_funnel_events_exclude_multiple_creation_deals`; call deals without a creation row are kept. Evidence: `analyses/profile_shared_deal_ids_timeline.sql`.
 
       - Call steps are a separate population: almost no call deals appear in the deal change log, so 2.1 and 3.1 can't be read as shares of the stage steps. Evidence: `analyses/profile_activity_deal_linkage.sql`.
 

@@ -4,10 +4,6 @@
 Whether the deal ID has more than one creation (`add_time`) row in the deal change log (boolean).
 {% enddocs %}
 
-{% docs int_deals__creation_count %}
-Number of creation (`add_time`) rows the deal has in the deal change log (integer, ≥ 0).
-{% enddocs %}
-
 {% docs stage_id_at_loss %}
 Pipeline stage the deal was in when it was lost (integer, 1–9): the `stage_id` of the deal's
 latest stage change at or before the loss's `changed_at`.

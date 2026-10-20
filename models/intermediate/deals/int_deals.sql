@@ -10,13 +10,15 @@ deal_changes as (
 
 ),
 
-creations as (
+-- one row per deal with a creation; the shared-ID flag is defined there
+creations_per_deal as (
 
     select
         deal_id,
+        has_multiple_creations,
         created_at
     from
-        {{ ref('int_deal_changes_filtered_to_creations') }}
+        {{ ref('int_deal_creations_aggregated_to_deals') }}
 
 ),
 
@@ -51,24 +53,6 @@ losses as (
         changed_at
     from
         {{ ref('int_deal_losses_joined_to_stages') }}
-
-),
-
--- creations rolled up to one row per deal before the join, so the join can't multiply deals.
--- a deal ID with more than one creation holds two separate deals that ran in parallel (an ID
--- collision); the flag lets each consumer decide (the funnel excludes them)
-creations_per_deal as (
-
-    select
-        deal_id,
-        count(*)                                as creation_count,
-        -- earliest, not latest: the first deal on a shared ID was not dropped (it was lost after
-        -- the second creation), so only the earliest precedes every event on the ID
-        min(created_at)                         as created_at
-    from
-        creations
-    group by
-        deal_id
 
 ),
 
@@ -181,10 +165,9 @@ deals as (
         stages_per_deal.furthest_stage_id,
         latest_losses.lost_reason_id,
         latest_losses.stage_id_at_loss,
-        coalesce(creations_per_deal.creation_count, 0)     as creation_count,
         coalesce(owners_per_deal.owner_change_count, 0)    as owner_change_count,
         coalesce(stages_per_deal.stage_change_count, 0)    as stage_change_count,
-        coalesce(creations_per_deal.creation_count, 0) > 1 as has_multiple_creations,
+        coalesce(creations_per_deal.has_multiple_creations, false) as has_multiple_creations,
         creations_per_deal.created_at,
         stages_per_deal.current_stage_entered_at,
         latest_losses.lost_at
@@ -209,7 +192,6 @@ select
     furthest_stage_id,
     lost_reason_id,
     stage_id_at_loss,
-    creation_count,
     owner_change_count,
     stage_change_count,
     has_multiple_creations,

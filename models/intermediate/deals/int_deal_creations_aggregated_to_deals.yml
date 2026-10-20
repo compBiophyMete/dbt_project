@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: int_deal_creations_aggregated_to_deals
+    description: >
+      Deal creations rolled up to one row per deal: when the deal was created and whether its ID
+      holds more than one deal. The one place `has_multiple_creations` is defined; read by
+      `int_deals` and by `int_deal_funnel_steps_unioned`, which excludes the flagged IDs.
+
+
+      **Grain**: one row per deal with at least one creation (`deal_id`). **Join on `deal_id`.**
+
+
+      **Transformations and business logic**: `int_deal_changes_filtered_to_creations` grouped by
+      `deal_id`.
+
+      - `has_multiple_creations`: more than one creation. Such an ID holds two separate deals running in parallel (an ID collision).
+
+      - `created_at`: the **earliest** creation, the only one that precedes every event on a shared ID.
+
+      - Table, not incremental: a later creation changes an existing row.
+
+
+      **Edge cases**:
+
+      - Shared deal IDs have `has_multiple_creations = true`. The test `not has_multiple_creations` fails on them on purpose (no thresholds). Evidence: `analyses/profile_shared_deal_ids_timeline.sql`, `analyses/profile_shared_deal_ids_time_of_day.sql`, `analyses/profile_shared_deal_ids_first_deal_not_dropped.sql`.
+
+      - An edited creation date in Pipedrive would count as a second creation; the warning test `assert_no_edited_creation_dates` flags one. Evidence: `analyses/profile_edited_creation_dates.sql`.
+
+
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
+      freshness check.
+    config:
+      tags: ["pipedrive", "daily"]
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "not has_multiple_creations"
+    columns:
+      - name: deal_id
+        description: "{{ doc('deal_id') }}"
+        data_tests:
+          - unique   # the grain
+          - not_null
+      - name: has_multiple_creations
+        description: "{{ doc('has_multiple_creations') }}"
+      - name: created_at
+        description: "{{ doc('int_deals__created_at') }}"
+        data_tests:
+          - not_null   # derived from new_value: catches a creation value that failed its format check

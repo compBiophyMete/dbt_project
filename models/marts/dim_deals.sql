@@ -11,7 +11,6 @@ deals as (
         furthest_stage_id,
         lost_reason_id,
         stage_id_at_loss,
-        creation_count,
         owner_change_count,
         stage_change_count,
         has_multiple_creations,
@@ -72,7 +71,6 @@ enriched as (
         furthest_stages.stage_name              as furthest_stage_name,
         lost_reasons.lost_reason_name,
         stages_at_loss.stage_name               as stage_name_at_loss,
-        deals.creation_count,
         deals.owner_change_count,
         deals.stage_change_count,
         deals.has_multiple_creations,
@@ -111,7 +109,6 @@ select
     lost_reason_name,
     stage_name_at_loss,
     -- counts are bigint (count(*)) upstream; integer is the contract type
-    creation_count::integer                     as creation_count,
     owner_change_count::integer                 as owner_change_count,
     stage_change_count::integer                 as stage_change_count,
     has_multiple_creations,

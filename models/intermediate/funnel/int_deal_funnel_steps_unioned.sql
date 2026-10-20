@@ -41,14 +41,14 @@ funnel_steps as (
 
 -- shared-ID flag, one row per deal: a deal ID with more than one creation holds two separate deals (an
 -- ID collision); they can't be split reliably, so the funnel excludes them. The flag is defined
--- once, in int_deals
+-- once, in int_deal_creations_aggregated_to_deals
 deals as (
 
     select
         deal_id,
         has_multiple_creations
     from
-        {{ ref('int_deals') }}
+        {{ ref('int_deal_creations_aggregated_to_deals') }}
 
 ),
 
@@ -113,8 +113,8 @@ funnel_events as (
 
 ),
 
--- Deals has one row per deal (n:1), so the join can't
--- multiply rows; call deals are mostly not in int_deals, so coalesce keeps them
+-- the flag has one row per deal (n:1), so the join can't
+-- multiply rows; call deals mostly have no creation row, so coalesce keeps them
 funnel_events_without_shared_ids as (
 
     select
