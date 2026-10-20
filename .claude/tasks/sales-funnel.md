@@ -119,7 +119,7 @@ Every model below is built, documented and tested.
 | `int_funnel_steps_mapped` | `funnel_step` | the only place stages and activity types are mapped to steps and named |
 | `int_deal_funnel_steps_unioned` | (`deal_id`, `funnel_step`) | all funnel rules (§7); stage steps `union all` call steps |
 | `int_activities_joined_to_types` | (`activity_id`, `deal_id`) | activities with `activity_type_id`, name and active state |
-| `int_activities_filtered_to_done` | (`activity_id`, `deal_id`) | done activities with `has_known_deal` |
+| `int_activities_filtered_to_done` | (`activity_id`, `deal_id`) | done activities only; no deal lookup, so the funnel doesn't depend on the deal models |
 | `int_users` | `user_id` | incremental `merge`; delete `post_hook` via `delete_rows_missing_upstream` |
 | `int_fields_unnested_to_options` | (`field_key`, `option_id`) | picklist options; lost-reason names |
 
@@ -136,7 +136,7 @@ Every model below is built, documented and tested.
 | `fct_deal_losses` | (`deal_id`, `lost_at`) | losses with `lost_reason_name` and stage at loss |
 | `fct_deal_events` | (`deal_id`, `changed_at`, `event_type`) | `union all` timeline of every change-log row; sparse columns per type |
 | `fct_deal_funnel_steps` | (`deal_id`, `funnel_step`) | from `int_deal_funnel_steps_unioned` |
-| `fct_activities` | (`activity_id`, `deal_id`) | done activities only |
+| `fct_activities` | (`activity_id`, `deal_id`) | done activities only; computes `has_known_deal` against `int_deals` |
 | `rep_sales_funnel_monthly` | (`month`, `funnel_step`) | the brief's report, exactly its four columns; full month × step grid |
 
 Exposure: `sales_funnel_monthly` in `models/marts/_marts__exposures.yml` (type `analysis`; switch to `dashboard` + `url` when one exists). One schema for all marts.
@@ -186,7 +186,7 @@ stg_pipedrive__deal_changes
   └─> int_deal_changes_filtered_to_losses ──> int_deal_losses_joined_to_stages
 int_deal_creations_aggregated_to_deals + owners + stages + int_deal_losses_joined_to_stages ──> int_deals
 stg_pipedrive__stages + stg_pipedrive__activity_types ──> int_funnel_steps_mapped
-stg_pipedrive__activities ──> int_activities_joined_to_types ──> int_activities_filtered_to_done (has_known_deal from int_deals)
+stg_pipedrive__activities ──> int_activities_joined_to_types ──> int_activities_filtered_to_done ──> fct_activities (+ has_known_deal from int_deals)
 
 int_deal_funnel_steps_unioned <── int_deal_stage_changes_aggregated_to_entries
                               <── int_activities_filtered_to_done
