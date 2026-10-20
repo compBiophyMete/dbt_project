@@ -17,17 +17,19 @@ Activity type key (max 50 characters), e.g. `meeting`, `sc_2`, `follow_up`, `aft
 {% enddocs %}
 
 {% docs field_key %}
-Deal field key (max 50 characters), e.g. `add_time`, `stage_id`, `user_id`, `lost_reason`.
-`user_id` is the deal owner field, named `user_id` in Pipedrive API v1 and `owner_id` in API v2
-([v2 migration guide](https://pipedrive.readme.io/docs/pipedrive-api-v2-migration-guide): "`user_id`
-field has been renamed to `owner_id`"); this data uses the v1 name.
+Technical name of a deal field (text, max 50 characters). The four keys:
+- `add_time`: the deal's creation time.
+- `stage_id`: the deal's pipeline stage.
+- `user_id`: the deal's owner. Pipedrive API v2 renamed this field to `owner_id`
+  ([v2 migration guide](https://pipedrive.readme.io/docs/pipedrive-api-v2-migration-guide)); this
+  data uses the v1 name `user_id`.
+- `lost_reason`: the reason the deal was lost.
 {% enddocs %}
 
 {# ---------- Table-specific column docs ---------- #}
 
 {% docs activity__activity_id %}
-Pipedrive activity identifier (integer). Not unique: some IDs appear on two deals, so join on
-`activity_id` and `deal_id` together.
+Pipedrive activity identifier (integer).
 {% enddocs %}
 
 {% docs activity__assigned_to_user %}

@@ -32,16 +32,17 @@ sources:
           table.
 
 
-          **Freshness**: none expected today, because the data is a static load. For a live feed the
-          check is ready on `due_to`: warning when the latest due_to is more than 1 day old, error
-          after 2 days. The table has no load timestamp; switch to one (e.g. `_loaded_at`) once the loader adds it. On the static
-          data the check reports error, as expected.
+          **Freshness**: none today. The table has no load timestamp, and the data is a static load. Once
+          the loader adds `_loaded_at`, a freshness check on it is added with thresholds that follow the
+          load schedule: daily load → warning after 1 day, error after 2 days; hourly load → warning
+          after 1 hour, error after 2 hours.
         config:
           tags: ["pipedrive"]
-          loaded_at_field: due_to
-          freshness:
-            warn_after: {count: 1, period: day}
-            error_after: {count: 2, period: day}
+          # TODO: once `_loaded_at` exists (declare the column too), uncomment and pick the load schedule:
+          # loaded_at_field: _loaded_at
+          # freshness:
+          #   warn_after: {count: 1, period: day}    # hourly load: {count: 1, period: hour}
+          #   error_after: {count: 2, period: day}   # hourly load: {count: 2, period: hour}
         data_tests:
           - elementary.schema_changes_from_baseline:
               arguments:
@@ -107,8 +108,7 @@ sources:
           Lookup of the activity types that can be logged in Pipedrive.
 
 
-          **Grain**: one row per activity type (`id`). `init.sql` declares `id` as the key. `type` is also
-          unique, and it is the column that `activity.type` points to.
+          **Grain**: one row per activity type (`id`). `init.sql` declares `id` as the primary key.
 
 
           **Load / test scope**: static load from `raw_data/activity_types.csv`. Contract tests cover the full
@@ -179,9 +179,8 @@ sources:
       - name: deal_changes
         description: >
           Change log of deal fields: each row records that a deal field (`changed_field_key`) was set to
-          `new_value` at `change_time`. The source has no deals table, so deal creation (`add_time`), stage
-          moves (`stage_id`), owner changes (`user_id`) and lost reasons (`lost_reason`) all come from this
-          table.
+          `new_value` at `change_time`. Deal creations (`add_time`), stage moves (`stage_id`), owner
+          changes (`user_id`) and losses with their reason (`lost_reason`) all come from this table.
 
 
           **Grain**: one row per deal, change time and changed field (`deal_id`, `change_time`,
@@ -252,11 +251,13 @@ sources:
 
       - name: fields
         description: >
-          Metadata for the deal fields tracked in `deal_changes`: display name and, for picklist fields, the
-          allowed options.
+          Lookup of the deal fields whose changes `deal_changes` records (`add_time`, `stage_id`,
+          `user_id`, `lost_reason`): each field's key and display name, e.g. `stage_id` = "Stage". For
+          a field with a fixed list of values (a picklist, e.g. `lost_reason`), `field_value_options`
+          lists each value's ID and label; the IDs are what `deal_changes.new_value` holds for that field.
 
 
-          **Grain**: one row per deal field (`id`). `init.sql` declares `id` as the key. `field_key` is also
+          **Grain**: one row per deal field (`id`). `init.sql` declares `id` as the primary key. `field_key` is also
           unique, and it is the column that `deal_changes.changed_field_key` points to.
 
 
@@ -307,7 +308,7 @@ sources:
           Lookup of the sales pipeline stages, in funnel order.
 
 
-          **Grain**: one row per pipeline stage (`stage_id`). `init.sql` declares `stage_id` as the key.
+          **Grain**: one row per pipeline stage (`stage_id`). `init.sql` declares `stage_id` as the primary key.
 
 
           **Load / test scope**: static load from `raw_data/stages.csv`. Contract tests cover the full
