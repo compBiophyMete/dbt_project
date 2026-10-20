@@ -138,7 +138,7 @@ The tags are set in [`dbt_project.yml`](dbt_project.yml) and repeated in each mo
 
 [`orchestration/airflow/dags/dbt_pipedrive_refresh.py`](orchestration/airflow/dags/dbt_pipedrive_refresh.py) refreshes the `daily` models at 03:00 UTC: it checks source freshness, loads the incremental models, then builds every other `daily` model and everything downstream of them in lineage order, from intermediate up to the marts, and finally runs the tests. Test failures are reported by a separate task, so they don't turn the run red.
 
-> **Assumption**: The raw Pipedrive source data is refreshed daily by 03:00 UTC. If the source load finishes later, move the DAG's schedule so it runs after the load.
+> **Assumption**: The raw Pipedrive source data is refreshed daily at 02:00 UTC, so the DAG runs an hour after the load. If the load moves or runs late, move the DAG's schedule with it; the source freshness check at the start of each run reports a stale source.
 
 ### Incremental models
 

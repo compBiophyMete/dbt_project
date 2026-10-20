@@ -61,8 +61,9 @@ PROJECT_TAG = "pipedrive"
 
 # schedule tag → cron (UTC). Keep in line with the schedule tags of the documentation rule.
 SCHEDULES = {
-    # 03:00 UTC. Assumption: the raw Pipedrive source data is refreshed daily by 03:00 UTC; move the
-    # cron if the source load finishes later. The lookback macro widens the window on Mondays.
+    # 03:00 UTC. Assumption: the raw Pipedrive source data is refreshed daily at 02:00 UTC, so the
+    # DAG runs an hour after the load; move the cron with the load. The lookback macro widens the
+    # window on Mondays.
     "daily": "0 3 * * *",
     "12h": "0 3,15 * * *",
     "hourly": "0 * * * *",
