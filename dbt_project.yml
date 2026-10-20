@@ -76,8 +76,10 @@ models:
       show: false   # keep Elementary's internal models out of the dbt docs site
 
   # dbt-project-evaluator's models (the project's DAG and rule results) live in a separate schema:
-  # <target schema>_dbt_project_evaluator
+  # <target schema>_dbt_project_evaluator. Opt-in: off unless --vars '{run_evaluator: true}' is
+  # passed (CI does), so a plain `dbt run` / `dbt test` touches only this project.
   dbt_project_evaluator:
+    +enabled: "{{ var('run_evaluator', false) }}"
     +schema: dbt_project_evaluator
     +docs:
       show: false
@@ -99,10 +101,11 @@ seeds:
     dbt_project_evaluator_exceptions:
       +enabled: false
 
-# dbt-project-evaluator's rule tests warn by default; CI sets DBT_PROJECT_EVALUATOR_SEVERITY=error
-# so a best-practice violation fails the pull request.
+# dbt-project-evaluator's rule tests: opt-in like its models; they warn by default, and CI sets
+# DBT_PROJECT_EVALUATOR_SEVERITY=error so a best-practice violation fails the pull request.
 data_tests:
   dbt_project_evaluator:
+    +enabled: "{{ var('run_evaluator', false) }}"
     +severity: "{{ env_var('DBT_PROJECT_EVALUATOR_SEVERITY', 'warn') }}"
 
 vars:

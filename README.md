@@ -47,7 +47,8 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/dbt deps
 
-# 5. Build, then test
+# 5. Load the seed, build, then test
+.venv/bin/dbt seed
 .venv/bin/dbt run
 .venv/bin/dbt test
 ```
@@ -164,10 +165,12 @@ After the first build, an incremental model processes only recent rows instead o
 | dbt docs | `.venv/bin/dbt docs generate --static`, then open `target/static_index.html` | models, sources, column docs, tests, lineage (layers colour-coded) |
 | Elementary report | `.venv/bin/edr report --profiles-dir .edr`, then open `edr_target/elementary_report.html` | test results with failing-row samples, run history |
 
-> ⚠️ **Warning**: On a fresh database, load the dbt-project-evaluator exceptions seed before generating the docs. One of the evaluator's models reads it while compiling, so `dbt docs generate` fails with `relation "dbt_project_evaluator.dbt_project_evaluator_exceptions" does not exist` until it is loaded:
+> **Note**: dbt-project-evaluator is opt-in, so `dbt run`, `dbt test` and `dbt docs generate` leave it out, and its rule results never reach the Elementary report. CI runs it on every pull request. To run it locally, load its exceptions seed first (one of its models reads it while compiling):
 >
 > ```bash
 > .venv/bin/dbt seed --select dbt_project_evaluator_exceptions
+> .venv/bin/dbt run --select package:dbt_project_evaluator --vars '{run_evaluator: true}'
+> .venv/bin/dbt test --select package:dbt_project_evaluator --vars '{run_evaluator: true}'
 > ```
 
 Commands, run from the repository root after a `dbt run` and `dbt test`:

@@ -101,12 +101,13 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
-      # 1. Best-practice check on the PR's code (blocking).
+      # 1. Best-practice check on the PR's code (blocking). The evaluator is opt-in (dbt_project.yml):
+      #    run_evaluator enables its models and tests for this step only.
       - name: dbt-project-evaluator
         run: |
           dbt seed --select dbt_project_evaluator_exceptions --profiles-dir .
-          dbt run --select package:dbt_project_evaluator --profiles-dir .
-          dbt test --select package:dbt_project_evaluator --profiles-dir .
+          dbt run --select package:dbt_project_evaluator --vars '{run_evaluator: true}' --profiles-dir .
+          dbt test --select package:dbt_project_evaluator --vars '{run_evaluator: true}' --profiles-dir .
 
       # 2. The deployed state: the base branch, built in full in the clone. It uses this branch's
       #    profiles.yml (connection from the environment), whatever the base branch's profiles.yml says.
