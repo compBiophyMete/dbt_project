@@ -1,14 +1,7 @@
 {# incremental loads only add and update rows; the post_hook removes users that no longer exist upstream #}
 {{
     config(
-        post_hook="
-            delete from {{ this }} as target
-            where not exists (
-                select 1
-                from {{ ref('stg_pipedrive__users') }} as source
-                where source.user_id = target.user_id
-            )
-        "
+        post_hook="{{ delete_rows_missing_upstream(ref('stg_pipedrive__users'), ['user_id']) }}"
     )
 }}
 

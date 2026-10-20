@@ -18,7 +18,7 @@ models:
 
       - `dwh_date`: start of the dbt run that last wrote the row.
 
-      - Deletes: a `post_hook` removes users no longer in `stg_pipedrive__users`.
+      - Deletes: a `post_hook` (`delete_rows_missing_upstream`) removes users no longer in `stg_pipedrive__users`.
 
 
       **Edge cases**:
