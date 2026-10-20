@@ -17,7 +17,6 @@ models:
 
       - `is_activity_type_active` is not a filter: it is the state of the type, not of the activity. It is kept so downstream models can warn when a counted type is deactivated.
 
-      - `has_known_deal`: `true` when the activity's `deal_id` is in `int_deals` (checked with `exists`, so no row is multiplied). Filter or report on it before joining activities to deal facts.
 
 
       **Edge cases**:
@@ -56,10 +55,6 @@ models:
         description: "{{ doc('activity_types__name') }}"
       - name: is_activity_type_active
         description: "{{ doc('stg_pipedrive__activity_types__is_activity_type_active') }}"
-      - name: has_known_deal
-        description: "{{ doc('has_known_deal') }}"
-        data_tests:
-          - not_null   # exists() always returns true or false; null would mean the logic changed
       - name: due_at
         description: "{{ doc('activity__due_to') }}"
         data_tests:

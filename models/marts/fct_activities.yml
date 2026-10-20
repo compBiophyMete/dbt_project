@@ -16,8 +16,10 @@ models:
       `deal_id` has no tested link to a deal dimension (see `has_known_deal`).
 
 
-      **Transformations and business logic**: `int_activities_filtered_to_done` unchanged (the done
-      filter and `has_known_deal` are applied there).
+      **Transformations and business logic**: `int_activities_filtered_to_done` (the done filter is
+      applied there), plus `has_known_deal`: whether the activity's `deal_id` is in `int_deals`
+      (an `exists` check, so no row is multiplied). It is computed here, where it is used, so the
+      activity models and the funnel that reads them don't depend on the deal models.
 
 
       **Edge cases**:

@@ -4,6 +4,12 @@
 Display name of the reason the deal was lost (max 255 characters), e.g. "Pricing Issues".
 {% enddocs %}
 
+{# ---------- Marts: fct_activities ---------- #}
+
+{% docs has_known_deal %}
+Whether the activity's `deal_id` exists in `int_deals` (boolean).
+{% enddocs %}
+
 {# ---------- Marts: fct_deal_events ---------- #}
 
 {% docs fct_deal_events__changed_at %}
