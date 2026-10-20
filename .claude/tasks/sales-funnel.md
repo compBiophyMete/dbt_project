@@ -147,7 +147,7 @@ Numbers live in the analyses; rerun them before relying on a finding.
 
 - **Activities barely link to deals**: almost no activity `deal_id` exists in `deal_changes`, and the few matches look like chance. So the call steps are a separate population. Evidence: `analyses/profile_activity_deal_linkage.sql`.
 - **Skipped stages are common.** Evidence: `analyses/profile_stage_skips.sql`, `analyses/profile_funnel_entered_vs_reached.sql`.
-- **Every deal's first stage change is to stage 1**, usually weeks after its creation. Evidence: `analyses/profile_first_stage_and_lead_lag.sql`, `analyses/profile_creations_vs_lead_generation_by_month.sql`.
+- **Every deal's first stage change is to stage 1**, usually weeks after its creation. Evidence: `analyses/profile_deals_first_stage.sql`, `analyses/profile_creations_vs_lead_generation_by_month.sql`.
 - **A few deal IDs carry two deals each** (two creations, two interleaved lifecycles, the first deal not dropped): an ID collision. They are the only deals with backward moves or revisits. Evidence: `analyses/profile_shared_deal_ids_timeline.sql`, `analyses/profile_shared_deal_ids_time_of_day.sql`, `analyses/profile_shared_deal_ids_first_deal_not_dropped.sql`.
 - **No edited creation dates** in the data (an edited date shows 12:00 AM in Pipedrive). Evidence: `analyses/profile_edited_creation_dates.sql`; warning test `assert_no_edited_creation_dates`.
 - **Some `activity_id`s are reused** on a second deal. Evidence: `analyses/profile_staging_grains.sql`.

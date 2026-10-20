@@ -2,7 +2,7 @@
 
 /*
     Early warning about the recorded stages: every deal with a stage history has a recorded entry
-    into stage 1 (last known result: analyses/profile_first_stage_and_lead_lag.sql). Returns each deal that has
+    into stage 1 (last known result: analyses/profile_deals_first_stage.sql). Returns each deal that has
     stage entries but no recorded entry into stage 1, i.e. it started directly at a later stage.
 
     "Recorded entry into stage 1" (checked here, in int_deal_stage_changes_aggregated_to_entries) is not the same as
