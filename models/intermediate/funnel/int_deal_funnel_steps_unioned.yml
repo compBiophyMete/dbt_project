@@ -22,7 +22,7 @@ models:
 
       - Every deal with a done call counts, whether or not it is in the deal change log.
 
-      - Losses don't remove a deal from a step: the funnel counts deals that reached it.
+      - Losses don't remove a deal from a step: the funnel counts deals that reached it. For normal deals a loss is the last stage event, so no lost deal enters a later step. Evidence: `analyses/profile_stage_changes_after_loss.sql`.
 
       - Deal IDs shared by two deals (`has_multiple_creations` from `int_deal_creations_aggregated_to_deals`) are excluded after the union. They stay in every other model.
 
@@ -38,6 +38,8 @@ models:
       - Stage 1 entry lags deal creation by weeks, so step 1 falls in a later month than creations. Evidence: `analyses/profile_creations_vs_lead_generation_by_month.sql`.
 
       - Stage entries and done calls can stop at different dates, so recent months can show some steps empty.
+
+      - Reopened deals: losses are not read here, so a deal that is lost, reopened and moves on still counts. Steps it reached before the loss keep their earlier date (the earliest entry wins), and steps it reaches only after the reopening count once, in the month it got there. Today no normal deal enters a stage after its loss; the warning test on `int_deals` (`current_stage_entered_at <= lost_at`) flags the first one. Evidence: `analyses/profile_stage_changes_after_loss.sql`.
 
 
       **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no

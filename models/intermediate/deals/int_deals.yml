@@ -29,8 +29,11 @@ models:
 
       - Shared deal IDs: `has_multiple_creations = true`, `created_at` = the earlier one, and every attribute mixes two deals (e.g. `furthest_stage_id` > `current_stage_id`). They are kept; `int_deal_funnel_steps_unioned` excludes them from the funnel.
 
-      - An edited creation date (shown at 12:00 AM, [Pipedrive KB](https://support.pipedrive.com/en/article/how-can-i-edit-the-deal-created-date)) is ruled out for the shared IDs, but a future one would count as a second creation; the warning test `assert_no_edited_creation_dates` flags it. 
+      - An edited creation date (shown at 12:00 AM, [Pipedrive KB](https://support.pipedrive.com/en/article/how-can-i-edit-the-deal-created-date)) is ruled out for the shared IDs, but a future one would count as a second creation; the warning test `assert_no_edited_creation_dates` flags it.
+
       - No won status in the source: the latest loss is the deal's current loss.
+
+      - A lost deal is expected to enter no stage after its loss (`current_stage_entered_at <= lost_at`): today a loss is the last stage event of every normal deal. A reopened deal that moves on in Pipedrive would break this; the warning test flags it without failing the run, and the funnel still counts every step the deal entered. Evidence: `analyses/profile_stage_changes_after_loss.sql`.
 
       - A deal without a creation would get a null `created_at` and fail `not_null`.
 
@@ -50,6 +53,13 @@ models:
       - dbt_utils.expression_is_true:
           arguments:
             expression: "current_stage_entered_at >= created_at and lost_at >= created_at"
+      # early warning: a lost deal enters no stage after its loss (a reopened deal would)
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "current_stage_entered_at <= lost_at"
+          config:
+            where: "lost_at is not null and not has_multiple_creations"
+            severity: warn
     columns:
       - name: deal_id
         description: "{{ doc('deal_id') }}"
