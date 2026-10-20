@@ -4,10 +4,6 @@ models:
   - name: int_deal_changes_filtered_to_stages
     description: >
       Stage history of Pipedrive deals: a deal moved into a pipeline stage at a point in time.
-      Feeds every stage-based KPI: the monthly funnel (`rep_sales_funnel_monthly`, via the first
-      entry per deal and stage), conversion rates, and the current stage in
-      `int_deals`.
-
 
       **Grain**: one row per deal and stage change (`deal_id`, `changed_at`). **Join on both**: a
       join on `deal_id` alone returns the deal's whole stage history.

@@ -4,19 +4,16 @@ models:
   - name: int_deal_changes_filtered_to_losses
     description: >
       Loss events of Pipedrive deals: a deal marked lost, with a reason, at a point in time.
-      Feeds loss KPIs (reasons, loss rate, stage at loss) and the current loss of a deal in
-      `int_deals`. Not used by `rep_sales_funnel_monthly`.
 
 
-      **Grain**: one row per deal and loss (`deal_id`, `changed_at`). **Join on both**: a deal
-      lost more than once has several rows.
+      **Grain**: one row per deal and loss (`deal_id`, `changed_at`). **Join on both**
 
 
       **Transformations and business logic**:
 
       - Keeps the `lost_reason` rows of `stg_pipedrive__deal_changes`; `new_value_integer` becomes `lost_reason_id`.
 
-      - Event history, not the loss status: an edited reason or a deal lost again adds a new row. The deal's current loss is computed in `int_deals`.
+      - Event history, not the loss status: an edited reason or a deal lost again adds a new row.
 
       - No label column: appended rows are never rewritten, so a stored label would go stale on a rename. Join it downstream from the `lost_reason` options of `int_fields_unnested_to_options` (`lost_reason_id` = `option_id`).
 
@@ -28,8 +25,6 @@ models:
 
 
       **Edge cases**:
-
-      - No won status in the source: stage 9 (Renewal/Expansion) does not mean won, and a reopened deal that wasn't lost again still shows its last loss.
 
       - Deal IDs with two creations have one loss per lifecycle. All rows are kept; `int_deals` flags them. Evidence: `analyses/profile_shared_deal_ids_timeline.sql`.
 

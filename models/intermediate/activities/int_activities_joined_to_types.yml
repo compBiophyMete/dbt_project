@@ -3,14 +3,14 @@ version: 2
 models:
   - name: int_activities_joined_to_types
     description: >
-      Pipedrive sales activities with their activity type's name and active state. The activity
-      building block for activity KPIs (e.g. the Sales Call 1 / Sales Call 2 steps of
-      `rep_sales_funnel_monthly`, activity counts per user or deal).
+      Pipedrive sales activities, done and not done, with their activity type's name and active
+      state. The base for every activity question: `int_activities_filtered_to_done` (and through it
+      the Sales Call steps of the funnel) reads it, and it is the only model that keeps not-done
+      activities, e.g. for a completion rate (done ÷ planned) per user or type.
 
 
       **Grain**: one row per activity and deal (`activity_id`, `deal_id`), same as
-      `stg_pipedrive__activities`. **Join on both**: some `activity_id`s are reused on two deals.
-
+      `stg_pipedrive__activities`. **Join on both**
 
       **Transformations and business logic**: `left join` to `stg_pipedrive__activity_types` on
       `activity_type` (n:1), adding `activity_type_name` and `is_activity_type_active`. No row is
@@ -21,8 +21,7 @@ models:
       `is_activity_type_active` describes the type today, not whether the activity happened.
 
 
-      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load, so no
-      freshness check.
+      **Refresh**: table, rebuilt daily on every `dbt run`. The source is a static load.
     config:
       tags: ["pipedrive", "daily"]
     data_tests:

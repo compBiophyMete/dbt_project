@@ -8,9 +8,8 @@ models:
       KPI by creation month.
 
 
-      **Grain**: one row per deal and creation record (`deal_id`, `changed_at`). **Join on both**:
-      a deal created twice has two rows. The grain uses the raw `changed_at`, not the derived
-      `created_at`, which could be null.
+      **Grain**: one row per deal and creation record (`deal_id`, `changed_at`). **Join on both**. The grain uses the raw `changed_at`, not the derived
+      `created_at`.
 
 
       **Transformations and business logic**:

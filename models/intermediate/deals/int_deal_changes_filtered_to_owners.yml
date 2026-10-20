@@ -4,9 +4,7 @@ models:
   - name: int_deal_changes_filtered_to_owners
     description: >
       Owner history of Pipedrive deals: a deal handed to an owner (a Pipedrive user) at a point in
-      time. Feeds owner KPIs ("owner at the time" attribution, handovers, workload) and the first
-      and current owner in `int_deals`. Not used by `rep_sales_funnel_monthly`.
-
+      time.
 
       **Grain**: one row per deal and owner change (`deal_id`, `changed_at`). **Join on both**: a
       deal can have several owners over time. Join users on `owner_user_id` = `int_users.user_id`

@@ -8,8 +8,7 @@ models:
       `rep_sales_funnel_monthly` and done calls per user or deal.
 
 
-      **Grain**: one row per activity and deal (`activity_id`, `deal_id`). **Join on both**: some
-      `activity_id`s are reused on two deals.
+      **Grain**: one row per activity and deal (`activity_id`, `deal_id`). **Join on both**
 
 
       **Transformations and business logic**:

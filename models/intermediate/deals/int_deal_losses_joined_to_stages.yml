@@ -4,8 +4,7 @@ models:
   - name: int_deal_losses_joined_to_stages
     description: >
       Each loss of a Pipedrive deal with the stage the deal was in when it was lost. Answers
-      "where in the pipeline do deals drop out?" (losses and lost reasons per stage); feeds
-      `fct_deal_losses`.
+      "where in the pipeline do deals drop out?" (losses and lost reasons per stage).
 
 
       **Grain**: one row per deal and loss (`deal_id`, `changed_at`), same as
