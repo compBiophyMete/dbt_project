@@ -3,9 +3,7 @@ version: 2
 models:
   - name: dim_funnel_steps
     description: >
-      The steps of the sales funnel. Conformed dimension: `fct_deal_funnel_steps` joins here for the
-      step name (`kpi_name`), and `rep_sales_funnel_monthly` uses it as the closed list of steps.
-
+      The steps of the sales funnel. Conformed dimension: facts with a stage_id.
 
       **Grain**: one row per funnel step (`funnel_step`). **Join on `funnel_step`.**
 

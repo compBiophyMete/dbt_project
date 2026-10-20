@@ -3,12 +3,9 @@ version: 2
 models:
   - name: dim_activity_types
     description: >
-      The types of activities logged in Pipedrive (sales calls and follow-ups). Conformed dimension:
-      `fct_activities` joins here to filter, group or label by type.
+      The types of activities logged in Pipedrive (sales calls and follow-ups). Conformed dimension: facts with a stage key join here on activity_type_id.
 
-
-      **Grain**: one row per activity type (`activity_type_id`). **Join on `activity_type_id`.** The
-      text key `activity_type` (e.g. `meeting`) is unique too.
+      **Grain**: one row per activity type (`activity_type_id`). **Join on `activity_type_id`.**
 
 
       **Transformations and business logic**: `stg_pipedrive__activity_types` unchanged, cast to the
