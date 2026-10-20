@@ -15,9 +15,13 @@ models:
 
       - Grid: every month from the smallest to the largest date in `fct_deal_events` and `fct_activities`, generated in this model rather than taken from a shared calendar dimension, × steps from `dim_funnel_steps`, so an empty step shows 0.
 
+      - Why the month range reads `fct_deal_events` and `fct_activities`, not only `fct_deal_funnel_steps`: the report covers the whole period of the data, every month with any deal change (creation, stage change, owner change or loss) or done activity. A month at the edge of the data with only losses or owner changes still appears, with 0 in every step, instead of disappearing. The cost is lineage: the report depends on the loss and owner models only for this range.
+
       - `deals_count`: deals that reached the step in that month (rows of `fct_deal_funnel_steps`). A deal counts once per step; additive across months.
 
       - Funnel rules come from `int_deal_funnel_steps_unioned`: cumulative stage steps, done calls dated by `due_at`, shared deal IDs excluded; losses don't remove a deal from a step.
+
+      - Assumption: call steps count every deal with a done call, including deals whose `deal_id` appears only on activities, not in the deal change log. Pipedrive activities belong to real deals, but this export barely links activity deal IDs to the change log, so the gap is treated as an export limitation, not as activities without a deal. Counting only linked deals would leave steps 2.1 and 3.1 almost empty. The gap stays visible through the failing `relationships` tests on the activities' `deal_id` and the `has_known_deal` flag; if a fuller export links the IDs, the same rule yields a single, consistent funnel population.
 
 
       **Edge cases**:
